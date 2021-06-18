@@ -7,12 +7,17 @@ source("R/functions.R")
 tar_option_set(
         packages = c(
                 "tidyverse", "glue", "rvest", "GenomicDataCommons", "TCGAutils",
-                "biomaRt", "SummarizedExperiment", "DESeq2", "GSVA"
+                "biomaRt", "SummarizedExperiment", "DESeq2", "GSVA", "future",
+                "future.callr", "showtext"
         )
 )
 
+library(future)
+library(future.callr)
+plan(callr)
+
 values = tibble(
-        project = c("blca", "brca", "ov", "skcm", "luad", "lusc", "kirc")
+        project = c("blca", "brca", "ov", "skcm", "luad", "lusc", "kirc", "coad")
 )
 
 
@@ -57,7 +62,11 @@ list(
         
         tar_combine(combined_dds, mapped[[5]]),
         
-        tar_target(hgnc_symbols, get_hgnc(combined_dds))
+        tar_target(hgnc_symbols, get_hgnc(combined_dds)),
+        
+        tar_combine(combined_gsva, mapped[[8]]),
+        
+        tar_target(tp, test_plot(combined_gsva))
 )
 
 

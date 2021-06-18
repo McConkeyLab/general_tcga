@@ -188,9 +188,6 @@ tcga_manifest_to_dds <- function(clin_path, manifest) {
         paste0(str_remove(clin_path, "[^/]*/clin.tsv$"), "dds.Rds")
 }
 
-# Can probably purrrify this.
-# Just make input arg a list
-
 get_hgnc <- function(tcga_dds = list()) {
         genes <- tcga_dds |> 
                 map(\(x) {
@@ -260,6 +257,8 @@ tidy_signatures <- function(signatures_file) {
         
         # IFNg Signature: https://www.jci.org/articles/view/91190/table/2
         
+        # Myeloid Inflammation Signature: https://www.nature.com/articles/s41591-018-0053-3/figures/2
+        
         b_cell <- c(
                 "BLK", "CD19", "FCRL2", "MS4A1", "KIAA0125", "TNFRSF17", "TCL1A",
                 "SPIB", "PNOC"
@@ -277,16 +276,17 @@ tidy_signatures <- function(signatures_file) {
         )
         cd8_fehr <- c("CD8A", "EOMES", "PRF1", "IFNG", "CD274")
         ifng <- c("IDO1", "CXCL10", "CXCL9", "HLA-DRA", "STAT1", "IFNG")
+        myeloid_inf <- c("CXCL1", "CXCL2", "CXCL3", "CXCL8", "IL6", "PTGS2")
         
         signatures <- list(
                 b_cell = b_cell, cd8_rose = cd8_rosen,
-                cd8_prat = cd8_prat, cd8_fehr = cd8_fehr, ifng = ifng
+                cd8_prat = cd8_prat, cd8_fehr = cd8_fehr, ifng = ifng,
+                myeloid_inf = myeloid_inf
         )
         
         write_rds(signatures, paste0(signatures_file, "signatures.Rds"))
         paste0(signatures_file, "signatures.Rds")
 }
-
 
 run_gsva <- function(data_path, signatures_path) {
         data <- read_rds(data_path)
@@ -332,4 +332,51 @@ merge_gsva <- function(data_path, scores) {
         
         write_rds(data, paste0(str_remove(data_path, "norm-counts.Rds"), "dds-w-scores.Rds"))
         paste0(str_remove(data_path, "norm-counts.Rds"), "dds-w-scores.Rds")
+}
+
+theme_tufte <- function(font_size = 30) {
+        theme(
+                panel.grid = element_blank(),
+                panel.background = element_rect(fill = "#FFFFF8", color = "#CCCCCC"),
+                plot.background = element_rect(fill = "#FFFFF8"),
+                strip.background = element_rect(fill = "#BBBBB0"),
+                legend.background = element_rect(fill = "#FFFFF8"),
+                legend.position = "top",
+                legend.key = element_blank(),
+                text = element_text(family = "GillSans", size = font_size)
+        )
+}
+
+get_gill <- function() {
+        showtext_auto()
+        
+        if (Sys.info()[["sysname"]] == "Windows") {
+                font_add("GillSans", "GIL_____.TTF")
+        } else if (Sys.info()[["sysname"]] == "Darwin") {
+                font_add("GillSans", "GillSans.ttc")
+        } else if (Sys.info()[["sysname"]] == "Linux") {
+                font_add("GillSans", "Gill Sans.otf")
+        }
+}
+
+
+test_plot <- function(tcga_dds = list()) {
+        get_gill()
+        sigs <- tcga_dds |> 
+                map(\(x) {
+                        x <- x |> 
+                                read_rds()
+                        x <- cbind(x$b_cell, x$cd8_rose) |>
+                                as_tibble() |> 
+                                setNames(c("b", "cd8t"))
+                }) |> 
+                bind_rows(.id = "proj")
+        ggplot(sigs, aes(x = b, y = cd8t, color = proj)) + 
+                scale_color_viridis_d(option = "plasma", end = 0.8) +
+                geom_point(size = 3, alpha = 0.5, shape = 16) + 
+                facet_wrap(~proj) +
+                theme_tufte() + 
+                theme(legend.position = "none")
+        ggsave("./test-plot.png", width = 10, height = 10)
+                
 }

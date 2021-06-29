@@ -334,6 +334,20 @@ merge_gsva <- function(data_path, scores) {
         paste0(str_remove(data_path, "norm-counts.Rds"), "dds-w-scores.Rds")
 }
 
+rm_normal_tissue <- function(data_path) {
+        data <- read_rds(data_path)
+        
+        # Select samples that are of the form
+        # TCGA-XX-XXXX-0[1-9]-...
+        # This selects for tumors, and against normal tissue.
+        to_select <- which(str_detect(data$submitter_id, "^TCGA-.{2}-.{4}-0.*"))
+        
+        tumor <- data[, to_select]
+        
+        write_rds(tumor, paste0(str_remove(data_path, "dds-w-scores.Rds"), "tumor-only.Rds"))
+        paste0(str_remove(data_path, "dds-w-scores.Rds"), "tumor-only.Rds")
+}
+
 theme_tufte <- function(font_size = 30) {
         theme(
                 panel.grid = element_blank(),
@@ -358,7 +372,6 @@ get_gill <- function() {
                 font_add("GillSans", "Gill Sans.otf")
         }
 }
-
 
 test_plot <- function(tcga_dds = list()) {
         get_gill()

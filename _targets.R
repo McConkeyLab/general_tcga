@@ -17,7 +17,8 @@ library(future.callr)
 plan(callr)
 
 values = tibble(
-        project = c("blca", "brca", "ov", "skcm", "luad", "lusc", "kirc", "coad")
+        project = c("blca", "brca", "ov", "skcm", "luad", "lusc", "kirc", "coad",
+                    "stad", "paad")
 )
 
 
@@ -30,7 +31,8 @@ mapped <- tar_map(
         tar_target(tcga_dds, tcga_manifest_to_dds(tidy_tcga_clin, tcga_man), format = "file"),
         tar_target(tcga_norm, norm_tcga_counts(tcga_dds, hgnc_symbols), format = "file"),
         tar_target(tcga_gsva_scores, run_gsva(tcga_norm, gene_signatures), format = "file"),
-        tar_target(tcga_gsva_merged, merge_gsva(tcga_norm, tcga_gsva_scores))
+        tar_target(tcga_gsva_merged, merge_gsva(tcga_norm, tcga_gsva_scores)),
+        tar_target(tcga_gsva_tumor, rm_normal_tissue(tcga_gsva_merged), format = "file")
 )
 
 list(
@@ -64,7 +66,7 @@ list(
         
         tar_target(hgnc_symbols, get_hgnc(combined_dds)),
         
-        tar_combine(combined_gsva, mapped[[8]]),
+        tar_combine(combined_gsva, mapped[[9]]),
         
         tar_target(tp, test_plot(combined_gsva))
 )

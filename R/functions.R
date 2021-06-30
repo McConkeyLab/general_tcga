@@ -388,6 +388,67 @@ get_gill <- function() {
         }
 }
 
+prep_clin_data <- function(data_path) {
+        
+        data <- read_rds(data_path)
+        
+        cd <- colData(data) |> 
+                as_tibble() |> 
+                dplyr::select(
+                        patient.gender,
+                        patient.age_at_initial_pathologic_diagnosis,
+                        patient.race_list.race,
+                        death_event,
+                        death_days,
+                        followUp_days,
+                        b_cell,
+                        cd8_rose,
+                        matches("^patient.samples.sample.days_to_collection$"),
+                        matches("^patient.stage_event.pathologic_stage$"),
+                        matches("^patient.stage_event.tnm_categories.pathologic_categories.pathologic_t$"),
+                        matches("^patient.stage_event.tnm_categories.pathologic_categories.pathologic_n$"),
+                        matches("^patient.stage_event.tnm_categories.pathologic_categories.pathologic_m$"),
+                        matches("^patient.anatomic_neoplasm_subdivision$"))
+        
+        name_key <- c(patient.gender = "sex",                         
+                      patient.age_at_initial_pathologic_diagnosis = "age",
+                      patient.race_list.race = "race",
+                      death_event = "death_event",
+                      death_days = "death_days",
+                      b_cell = "b_cell",
+                      cd8_rose = "cd8_rose",
+                      followUp_days = "follow_up_days",
+                      patient.samples.sample.days_to_collection = "days_to_collection",
+                      patient.stage_event.pathologic_stage = "path_stage",
+                      patient.stage_event.tnm_categories.pathologic_categories.pathologic_t = "tnm_t", 
+                      patient.stage_event.tnm_categories.pathologic_categories.pathologic_n = "tnm_n",
+                      patient.stage_event.tnm_categories.pathologic_categories.pathologic_m = "tnm_m",
+                      patient.anatomic_neoplasm_subdivision = "anatomic_subdivision")
+        
+        filt_names <- name_key[names(cd) %in% names(name_key)]
+        
+        names(cd) <- filt_names[names(cd)]
+        cd <- cd |> 
+                mutate(b_bin = if_else(b_cell > 0, "hi", "lo"),
+                       cd8_bin = if_else(cd8_rose > 0, "hi", "lo")) |> 
+                unite(b8t, b_bin, cd8_bin, remove = FALSE)
+        
+        write_rds(cd, paste0(str_remove(data_path, "unique-tumor-only.Rds"), "tidy-clin-dat.Rds"))
+        paste0(str_remove(data_path, "unique-tumor-only.Rds"), "tidy-clin-dat.Rds")
+}
+
+make_clin_table <- function(data_path) {
+        
+        data_path <- data_path
+        
+        data <- read_rds(data_path) |> 
+                tbl_summary(by = sex) |> 
+                add_overall() |> 
+                as_gt() |> 
+                gtsave(paste0(str_remove(data_path, "tidy-clin-dat.Rds"), "clin-table-wip.png"))
+        paste0(str_remove(data_path, "tidy-clin-dat.Rds"), "clin-table-wip.png")
+}
+
 test_plot <- function(tcga_dds = list()) {
         get_gill()
         sigs <- tcga_dds |> 

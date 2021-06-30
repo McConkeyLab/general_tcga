@@ -70,7 +70,7 @@ list(
         
         tar_target(hgnc_symbols, get_hgnc(combined_dds)),
         
-        tar_combine(combined_gsva, mapped[[9]]),
+        tar_combine(combined_gsva, mapped[[10]]),
         
         tar_target(tp, test_plot(combined_gsva))
 )

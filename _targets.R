@@ -8,7 +8,8 @@ tar_option_set(
         packages = c(
                 "tidyverse", "glue", "rvest", "GenomicDataCommons", "TCGAutils",
                 "biomaRt", "SummarizedExperiment", "DESeq2", "GSVA", "future",
-                "future.callr", "showtext"
+                "future.callr", "showtext", "gt", "gtsummary", "survival", 
+                "survminer" 
         )
 )
 
@@ -18,7 +19,7 @@ plan(callr)
 
 values = tibble(
         project = c("blca", "brca", "ov", "skcm", "luad", "lusc", "kirc", "coad",
-                    "stad", "paad")
+                    "stad", "paad", "lihc", "hnsc")
 )
 
 

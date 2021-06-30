@@ -348,6 +348,21 @@ rm_normal_tissue <- function(data_path) {
         paste0(str_remove(data_path, "dds-w-scores.Rds"), "tumor-only.Rds")
 }
 
+select_first_duplicate <- function(data_path) {
+        data <- read_rds(data_path)
+        
+        cd <- colData(data) |> 
+                as_tibble() |> 
+                mutate(index = row_number()) |> 
+                arrange(submitter_id) |> 
+                distinct(sample, .keep_all = TRUE)
+        
+        unique_tumors <- data[, cd$index]
+        
+        write_rds(unique_tumors, paste0(str_remove(data_path, "tumor-only.Rds"), "unique-tumor-only.Rds"))
+        paste0(str_remove(data_path, "tumor-only.Rds"), "unique-tumor-only.Rds")
+}
+
 theme_tufte <- function(font_size = 30) {
         theme(
                 panel.grid = element_blank(),

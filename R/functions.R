@@ -1,11 +1,11 @@
+# File Preparation and Download ------------------------------------------------
+
 make_directory <- function(path) {
         if (!dir.exists(path)) {
                 dir.create(path)
         }
         path
 }
-
-# TCGA common ------------------------------------------------------------------
 
 make_tcga_rm_file <- function(tcga_common_dir) {
         
@@ -58,6 +58,8 @@ download_tcga_clin_file <- function(tcga_data_dir, tcga_proj) {
         
         paste0(tcga_data_dir, clin_dir, "/", clin_file)
 }
+
+# Wrangle and Tidy -------------------------------------------------------------
 
 tidy_tcga_clinical <- function(tcga_clin_path) {
         clinical <-
@@ -257,6 +259,9 @@ tidy_signatures <- function(signatures_file) {
         
         # IFNg Signature: https://www.jci.org/articles/view/91190/table/2
         
+        # Expanded Immune Signature: https://www.jci.org/articles/view/91190
+        # Table 2
+        
         # Myeloid Inflammation Signature: https://www.nature.com/articles/s41591-018-0053-3/figures/2
         
         b_cell <- c(
@@ -278,10 +283,12 @@ tidy_signatures <- function(signatures_file) {
         ifng <- c("IDO1", "CXCL10", "CXCL9", "HLA-DRA", "STAT1", "IFNG")
         myeloid_inf <- c("CXCL1", "CXCL2", "CXCL3", "CXCL8", "IL6", "PTGS2")
         
+        exp_immune <- c("CD3D", "IDO1", "CIITA", "CD3E", "CCL5", "GZMK", "CD2", "HLA-DRA", "CXCL13", "IL2RG", "NKG7", "HLA-E", "CXCR6", "LAG3", "TAGAP", "CXCL10", "STAT1", "GZMB")
+        
         signatures <- list(
                 b_cell = b_cell, cd8_rose = cd8_rosen,
                 cd8_prat = cd8_prat, cd8_fehr = cd8_fehr, ifng = ifng,
-                myeloid_inf = myeloid_inf
+                myeloid_inf = myeloid_inf, exp_immune = exp_immune
         )
         
         write_rds(signatures, paste0(signatures_file, "signatures.Rds"))
@@ -363,12 +370,69 @@ select_first_duplicate <- function(data_path) {
         paste0(str_remove(data_path, "tumor-only.Rds"), "unique-tumor-only.Rds")
 }
 
+prep_clin_data <- function(data_path) {
+        
+        data <- read_rds(data_path)
+        
+        cd <- colData(data) |> 
+                as_tibble() |> 
+                dplyr::select(
+                        patient.gender,
+                        patient.age_at_initial_pathologic_diagnosis,
+                        patient.race_list.race,
+                        death_event,
+                        new_death,
+                        followUp_days,
+                        b_cell,
+                        cd8_rose,
+                        exp_immune,
+                        matches("^patient.samples.sample.days_to_collection$"),
+                        matches("^patient.stage_event.pathologic_stage$"),
+                        matches("^patient.stage_event.tnm_categories.pathologic_categories.pathologic_t$"),
+                        matches("^patient.stage_event.tnm_categories.pathologic_categories.pathologic_n$"),
+                        matches("^patient.stage_event.tnm_categories.pathologic_categories.pathologic_m$"),
+                        matches("^patient.anatomic_neoplasm_subdivision$"))
+        name_key <- c(patient.gender = "sex",                         
+                      patient.age_at_initial_pathologic_diagnosis = "age",
+                      patient.race_list.race = "race",
+                      death_event = "death_event",
+                      new_death = "new_death",
+                      b_cell = "b_cell",
+                      cd8_rose = "cd8_rose",
+                      exp_immune = "exp_immune",
+                      followUp_days = "follow_up_days",
+                      patient.samples.sample.days_to_collection = "days_to_collection",
+                      patient.stage_event.pathologic_stage = "path_stage",
+                      patient.stage_event.tnm_categories.pathologic_categories.pathologic_t = "tnm_t", 
+                      patient.stage_event.tnm_categories.pathologic_categories.pathologic_n = "tnm_n",
+                      patient.stage_event.tnm_categories.pathologic_categories.pathologic_m = "tnm_m",
+                      patient.anatomic_neoplasm_subdivision = "anatomic_subdivision")
+        
+        filt_names <- name_key[names(cd) %in% names(name_key)]
+        
+        
+        
+        names(cd) <- filt_names[names(cd)]
+        cd <- cd |> 
+                mutate(b_bin = if_else(b_cell > 0, "hi", "lo"),
+                       cd8_bin = if_else(cd8_rose > 0, "hi", "lo")) |> 
+                unite(b8t, b_bin, cd8_bin, remove = FALSE) |> 
+                dplyr::filter((new_death > 0) | is.na(new_death)) |> 
+                dplyr::filter(!is.na(sex))
+        
+        write_rds(cd, paste0(str_remove(data_path, "unique-tumor-only.Rds"), "tidy-clin-dat.Rds"))
+        paste0(str_remove(data_path, "unique-tumor-only.Rds"), "tidy-clin-dat.Rds")
+}
+
+
+# Plotting Helpers -------------------------------------------------------------
+
 theme_tufte <- function(font_size = 30) {
         theme(
                 panel.grid = element_blank(),
                 panel.background = element_rect(fill = "#FFFFF8", color = "#CCCCCC"),
                 plot.background = element_rect(fill = "#FFFFF8"),
-                strip.background = element_rect(fill = "#BBBBB0"),
+                strip.background = element_rect(fill = "#BBBBB0", size = 0),
                 legend.background = element_rect(fill = "#FFFFF8"),
                 legend.position = "top",
                 legend.key = element_blank(),
@@ -388,65 +452,140 @@ get_gill <- function() {
         }
 }
 
-prep_clin_data <- function(data_path) {
-        
-        data <- read_rds(data_path)
-        
-        cd <- colData(data) |> 
-                as_tibble() |> 
-                dplyr::select(
-                        patient.gender,
-                        patient.age_at_initial_pathologic_diagnosis,
-                        patient.race_list.race,
-                        death_event,
-                        death_days,
-                        followUp_days,
-                        b_cell,
-                        cd8_rose,
-                        matches("^patient.samples.sample.days_to_collection$"),
-                        matches("^patient.stage_event.pathologic_stage$"),
-                        matches("^patient.stage_event.tnm_categories.pathologic_categories.pathologic_t$"),
-                        matches("^patient.stage_event.tnm_categories.pathologic_categories.pathologic_n$"),
-                        matches("^patient.stage_event.tnm_categories.pathologic_categories.pathologic_m$"),
-                        matches("^patient.anatomic_neoplasm_subdivision$"))
-        
-        name_key <- c(patient.gender = "sex",                         
-                      patient.age_at_initial_pathologic_diagnosis = "age",
-                      patient.race_list.race = "race",
-                      death_event = "death_event",
-                      death_days = "death_days",
-                      b_cell = "b_cell",
-                      cd8_rose = "cd8_rose",
-                      followUp_days = "follow_up_days",
-                      patient.samples.sample.days_to_collection = "days_to_collection",
-                      patient.stage_event.pathologic_stage = "path_stage",
-                      patient.stage_event.tnm_categories.pathologic_categories.pathologic_t = "tnm_t", 
-                      patient.stage_event.tnm_categories.pathologic_categories.pathologic_n = "tnm_n",
-                      patient.stage_event.tnm_categories.pathologic_categories.pathologic_m = "tnm_m",
-                      patient.anatomic_neoplasm_subdivision = "anatomic_subdivision")
-        
-        filt_names <- name_key[names(cd) %in% names(name_key)]
-        
-        names(cd) <- filt_names[names(cd)]
-        cd <- cd |> 
-                mutate(b_bin = if_else(b_cell > 0, "hi", "lo"),
-                       cd8_bin = if_else(cd8_rose > 0, "hi", "lo")) |> 
-                unite(b8t, b_bin, cd8_bin, remove = FALSE)
-        
-        write_rds(cd, paste0(str_remove(data_path, "unique-tumor-only.Rds"), "tidy-clin-dat.Rds"))
-        paste0(str_remove(data_path, "unique-tumor-only.Rds"), "tidy-clin-dat.Rds")
-}
+
+# Make Plots -------------------------------------------------------------------
+
+## Individual Project Plots -----------------------------------------------------
 
 make_clin_table <- function(data_path) {
-        
         data_path <- data_path
-        
         data <- read_rds(data_path) |> 
                 tbl_summary(by = sex) |> 
                 add_overall() |> 
                 as_gt() |> 
                 gtsave(paste0(str_remove(data_path, "tidy-clin-dat.Rds"), "clin-table-wip.png"))
         paste0(str_remove(data_path, "tidy-clin-dat.Rds"), "clin-table-wip.png")
+}
+
+survival_b_cell_ind <- function(data_path) {
+        get_gill() 
+        data_path <- data_path
+        data <- read_rds(data_path)
+        ggsurv <- 
+                surv_fit(Surv(new_death, death_event) ~ sex + b_bin, data = data) |> 
+                ggsurvplot(color = "sex",
+                           size = 0.2,
+                           xscale = "d_m", 
+                           break.time.by = 365.25,
+                           linetype = "b_bin")
+        ggsurv$plot <- 
+                ggsurv$plot +
+                theme_tufte() + 
+                scale_color_viridis_d(option = "plasma", end = 0.8)
+        ggsave(paste0(str_remove(data_path, "tidy-clin-dat.Rds"), "surv_b.png"), 
+               ggsurv$plot, 
+               width = 3, height = 3)
+        paste0(str_remove(data_path, "tidy-clin-dat.Rds"), "surv_b.png")
+} 
+
+dense_ind <- function(data_path, x, file_name, color = NULL, facet = NULL) {
+        get_gill()
+        enq_fac <- enquo(facet)
+        df <- data_path |> 
+                read_rds() |> 
+                ggplot(aes(x = {{ x }}, color = {{ color }})) + 
+                geom_density() + 
+                facet_grid(rows = vars(!!enq_fac)) + 
+                coord_cartesian(xlim = c(-1, 1)) + 
+                theme_tufte() +
+                theme(legend.position = "none")
+        ggsave(paste0(str_remove(data_path, "tidy-clin-dat.Rds"), file_name), 
+               df, 
+               width = 3, height = 3)
+        paste0(str_remove(data_path, "tidy-clin-dat.Rds"), file_name)
+}
+
+density_b_cell_ind <- function(data_path) {
+        get_gill() 
+        data_path <- data_path
+        b_dens <- read_rds(data_path) |> 
+                ggplot(aes(x = b_cell)) +
+                geom_density() + 
+                coord_cartesian(xlim = c(-1, 1)) + 
+                theme_tufte() +
+                theme(legend.position = "none")
+        ggsave(paste0(str_remove(data_path, "tidy-clin-dat.Rds"), "dens_b.png"), 
+               b_dens, 
+               width = 3, height = 3)
+        paste0(str_remove(data_path, "tidy-clin-dat.Rds"), "dens_b.png")
+} 
+
+survival_b_cell <- function(tcga_dds = list()) {
+        get_gill() 
+        b_surv <- tcga_dds |> 
+                map(\(x) {
+                        x <- x |> 
+                                read_rds()
+                        x <- cbind(b_bin = x$b_bin, death_event = x$death_event, new_death = x$new_death, sex = x$sex) |>
+                                as_tibble() |> 
+                                mutate(death_event = as.numeric(death_event),
+                                       new_death = as.numeric(new_death))
+                }) |> 
+                bind_rows(.id = "proj")
+        ggsurv <- 
+                surv_fit(Surv(new_death, death_event) ~ sex + b_bin + proj, data = b_surv) |> 
+                ggsurvplot(color = "sex", 
+                           size = 0.2, 
+                           xscale = "d_m", 
+                           xlim = c(0, 1800), 
+                           break.time.by = 365.25,
+                           linetype = "b_bin")
+        ggsurv$plot <- 
+                ggsurv$plot +
+                theme_tufte(20) + 
+                scale_color_viridis_d(option = "plasma", end = 0.8) + 
+                facet_wrap(~proj)
+        ggsave("survplot.png", ggsurv$plot, width = 5, height = 5)
+}
+
+density_b_cell <- function(tcga_dds = list()) {
+        get_gill() 
+        b_dens <- tcga_dds |> 
+                map(\(x) {
+                        x <- x |> 
+                                read_rds()
+                        x <- cbind(b_cell = x$b_cell, sex = x$sex) |>
+                                as_tibble() |> 
+                                mutate(b_cell = as.numeric(b_cell))
+                }) |> 
+                bind_rows(.id = "proj")
+        print(b_dens)
+        b_dens <- ggplot(b_dens, aes(x = b_cell)) +
+                geom_density() + 
+                facet_wrap(~proj) + 
+                theme_tufte(20) + 
+                theme(legend.position = "none")
+        ggsave("denseplot.png", b_dens, width = 10, height = 10)
+}
+
+density_pan_immune_cell <- function(tcga_dds = list()) {
+        get_gill() 
+        b_dens <- tcga_dds |> 
+                map(\(x) {
+                        x <- x |> 
+                                read_rds()
+                        x <- cbind(exp_immune = x$exp_immune, sex = x$sex) |>
+                                as_tibble() |> 
+                                mutate(exp_immune = as.numeric(exp_immune))
+                }) |> 
+                bind_rows(.id = "proj")
+        print(b_dens)
+        b_dens <- ggplot(b_dens, aes(x = exp_immune)) +
+                geom_density() + 
+                facet_wrap(~proj) + 
+                theme_tufte(20) + 
+                theme(legend.position = "none")
+        ggsave("denseplot_exp-immune.png", b_dens, width = 10, height = 10)
 }
 
 test_plot <- function(tcga_dds = list()) {
@@ -467,5 +606,4 @@ test_plot <- function(tcga_dds = list()) {
                 theme_tufte() + 
                 theme(legend.position = "none")
         ggsave("./test-plot.png", width = 10, height = 10)
-                
 }

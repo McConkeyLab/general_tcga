@@ -32,15 +32,18 @@ mapped <- tar_map(
         tar_target(tcga_dds, tcga_manifest_to_dds(tidy_tcga_clin, tcga_man), format = "file"),
         tar_target(tcga_norm, norm_tcga_counts(tcga_dds, hgnc_symbols), format = "file"),
         tar_target(tcga_gsva_scores, run_gsva(tcga_norm, gene_signatures), format = "file"),
-        tar_target(tcga_gsva_merged, merge_gsva(tcga_norm, tcga_gsva_scores)),
+        tar_target(tcga_gsva_merged, merge_gsva(tcga_norm, tcga_gsva_scores), format = "file"),
         tar_target(tcga_gsva_tumor, rm_normal_tissue(tcga_gsva_merged), format = "file"),
         tar_target(tcga_gsva_unique_tumor, select_first_duplicate(tcga_gsva_tumor), format = "file"),
         tar_target(tcga_tidy_clin, prep_clin_data(tcga_gsva_unique_tumor), format = "file"),
-        tar_target(tcga_clin_table, make_clin_table(tcga_tidy_clin), format = "file")
+        tar_target(tcga_clin_table, make_clin_table(tcga_tidy_clin), format = "file"),
+        tar_target(tcga_surv_b, survival_b_cell_ind(tcga_tidy_clin), format = "file"),
+        tar_target(tcga_dens_b, dense_ind(tcga_tidy_clin, b_cell, "density_b.png", sex), format = "file")
 )
 
 list(
         # Init dirs ------------------------------------------------------------
+        
         tar_target(
                 data_dir,
                 make_directory("./01_data/")
@@ -71,6 +74,11 @@ list(
         tar_target(hgnc_symbols, get_hgnc(combined_dds)),
         
         tar_combine(combined_gsva, mapped[[10]]),
+        
+        tar_combine(combined_clin, mapped[[11]]),
+        tar_target(b_surv, survival_b_cell(combined_clin)),
+        tar_target(b_dens, density_b_cell(combined_clin)),
+        tar_target(pan_dens, density_pan_immune_cell(combined_clin)),
         
         tar_target(tp, test_plot(combined_gsva))
 )

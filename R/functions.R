@@ -454,6 +454,19 @@ get_gill <- function() {
 }
 
 
+# Taken from user allan-cameron on StackOverflow
+ggsurvplot_facet2 <- function(pval.size = 5, ...)
+{
+        newcall <- bquote(
+                p <- p + geom_text(data = pvals.df, aes(x = pval.x, y = pval.y, 
+                                                        label = pval.txt), size = .(pval.size), hjust = 0)
+        )
+        
+        body(ggsurvplot_facet)[[20]][[3]][[8]] <- newcall
+        ggsurvplot_facet(...)
+}
+
+
 # Make Plots -------------------------------------------------------------------
 
 ## Individual Project Plots -----------------------------------------------------
@@ -504,6 +517,84 @@ dense_ind <- function(data_path, x, file_name, color = NULL, facet = NULL) {
                df, 
                width = 3, height = 3)
         paste0(str_remove(data_path, "tidy-clin-dat.Rds"), file_name)
+}
+
+surv_ind <- function(data_path, strata, file_name, 
+                     legend_labs = NULL, 
+                     color = NULL, 
+                     linetype = NULL, 
+                     facet = NULL, 
+                     legend_title = NULL,
+                     width = 2,
+                     height = 2) {
+        get_gill()
+        data_path <- data_path 
+        dat <- read_rds(data_path)
+        
+        if (is.null(legend_labs)){
+                legend_labs <- 
+                        setdiff(strata, facet)
+                if (length(legend_labs) == 1) {
+                        legend_labs <- levels(dat[[legend_labs]]) 
+                } else {
+                        df <- select(dat, all_of(strata)) |>
+                                mutate(across(everything(), fct_drop))
+                        
+                        make_labs <- function(reduced, will_reduce) {
+                                if (is_tibble(reduced)) {
+                                        reduced <- factor(unlist(reduced))
+                                }
+                                temp <- expand_grid(a = levels(reduced), b = levels(will_reduce))
+                                c <- unite(temp, b, a, b, sep = "/")
+                        }
+                        
+                        legend_labs <- purrr::reduce(df, make_labs) |>
+                                unlist() |>
+                                unname()
+                }
+        }
+        
+        if (is.null(legend_title) & is.null(color)){
+                legend_title <- strata |>
+                        str_replace("_", " ") |> 
+                        str_to_title() |> 
+                        paste(collapse = "/")
+                
+        }
+        
+        ivs <- paste(strata, collapse = " + ")
+        form <- as.formula(paste("Surv(new_death, death_event) ~", ivs))
+        
+        fit <- surv_fit(form, data = dat)
+        dat <- as.data.frame(dat)
+        
+        args <- list(fit = fit, data = dat, pval = TRUE, pval.coord = c(0, 0.1), 
+                     legend.labs = legend_labs, legend.title = legend_title,
+                     break.time.by = 365.25, xscale = "d_m", size = 0.2, 
+                     pval.size = 6, font.x = 20, font.y = 20)
+        
+        if (is.null(facet) || dat[[facet]] |> unique() |> length() == 1) {
+                ggsurv <- do.call(ggsurvplot, c(args))
+                ggsurv <- ggsurv$plot
+        } else {
+                ggsurv <- do.call(ggsurvplot_facet2, c(args, facet.by = facet, short.panel.labs = TRUE))
+                width <- 3.5
+        }
+        
+        ggsurv <- ggsurv +
+                theme_tufte() + 
+                theme(legend.text = element_text(size = 15),
+                      legend.title = element_text(size = 15)) +
+                scale_color_viridis_d(option = "plasma", end = 0.8) 
+        
+        ggsave(paste0(str_remove(data_path, "tidy-clin-dat.Rds"), file_name), 
+               ggsurv, 
+               width = width, height = height)
+        
+        paste0(str_remove(data_path, "tidy-clin-dat.Rds"), file_name)
+        
+        # TODO
+        ## Add risk table
 }
 
 density_b_cell_ind <- function(data_path) {

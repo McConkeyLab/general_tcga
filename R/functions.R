@@ -125,7 +125,7 @@ tidy_tcga_clinical <- function(tcga_clin_path) {
 create_tcga_manifest <- function(rm_cases_file, tcga_project) {
         
         tcga_project_gdc <- paste0("TCGA-", toupper(tcga_project))
-
+        
         rm_cases <- read_tsv(rm_cases_file)
         
         manifest <- files() |>
@@ -182,7 +182,7 @@ tcga_manifest_to_dds <- function(clin_path, manifest) {
         )
         samples <- tumor_data[match(colnames(dds), tumor_data$id), ]
         colData(dds) <- cbind(colData(dds), samples)
-        colnames(dds) <- colData(dds)$short_id
+        colnames(dds) <- colData(dds)$submitter_id
         
         # Strip Ensembl Version Number
         rownames(dds) <- str_replace(rownames(dds), ".[0-9]+$", "")
@@ -200,7 +200,7 @@ get_hgnc <- function(tcga_dds = list()) {
                 unlist() |> 
                 as_tibble() |> 
                 distinct()
-
+        
         mart <- useMart("ensembl", dataset = "hsapiens_gene_ensembl")
         ids <- getBM(
                 attributes = c("hgnc_symbol", "entrezgene_id", "ensembl_gene_id"),
@@ -209,7 +209,7 @@ get_hgnc <- function(tcga_dds = list()) {
                 mart = mart,
                 useCache = FALSE
         )
-
+        
         write_tsv(ids, "./01_data/tcga-common/all_ids.tsv")
         "./01_data/tcga-common/all_ids.tsv"
 }
@@ -348,7 +348,6 @@ rm_normal_tissue <- function(data_path) {
         # TCGA-XX-XXXX-0[1-9]-...
         # This selects for tumors, and against normal tissue.
         to_select <- which(str_detect(data$submitter_id, "^TCGA-.{2}-.{4}-0.*"))
-        
         tumor <- data[, to_select]
         
         write_rds(tumor, paste0(str_remove(data_path, "dds-w-scores.Rds"), "tumor-only.Rds"))

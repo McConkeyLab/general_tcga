@@ -228,6 +228,7 @@ norm_tcga_counts <- function(dds_path, hgnc_ids) {
         rownames(dds) <- rowData(dds)$hgnc_symbol
         
         # Remove NA and Blank HUGO Symbols
+        rownames(dds) <- make.names(rownames(dds))
         dds <- dds[!is.na(rownames(dds)), ]
         dds <- dds[(rownames(dds) != ""), ]
         

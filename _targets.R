@@ -9,7 +9,7 @@ tar_option_set(
                 "tidyverse", "glue", "rvest", "GenomicDataCommons", "TCGAutils",
                 "biomaRt", "SummarizedExperiment", "DESeq2", "GSVA", "future",
                 "future.callr", "showtext", "gt", "gtsummary", "survival", 
-                "survminer" 
+                "survminer"
         )
 )
 
@@ -37,8 +37,9 @@ mapped <- tar_map(
         tar_target(tcga_gsva_unique_tumor, select_first_duplicate(tcga_gsva_tumor), format = "file"),
         tar_target(tcga_tidy_clin, prep_clin_data(tcga_gsva_unique_tumor), format = "file"),
         tar_target(tcga_clin_table, make_clin_table(tcga_tidy_clin), format = "file"),
-        tar_target(tcga_surv_b, survival_b_cell_ind(tcga_tidy_clin), format = "file"),
-        tar_target(tcga_dens_b, dense_ind(tcga_tidy_clin, b_cell, "density_b.png", sex), format = "file")
+        tar_target(tcga_dens_b, dense_ind(tcga_tidy_clin, b_cell, "density_b.png", color = sex), format = "file"),
+        tar_target(tcga_surv_b_sex, surv_ind(tcga_tidy_clin, "b_bin", file_name =  "surv_b_sex.png", facet = "sex"), format = "file"),
+        tar_target(tcga_surv_b, surv_ind(tcga_tidy_clin, strata = "b_bin", file_name = "surv_b.png"), format = "file")
 )
 
 list(
@@ -82,5 +83,3 @@ list(
         
         tar_target(tp, test_plot(combined_gsva))
 )
-
-

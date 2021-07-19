@@ -435,6 +435,8 @@ theme_tufte <- function(font_size = 30) {
                 legend.background = element_rect(fill = "#FFFFF8"),
                 legend.position = "top",
                 legend.key = element_blank(),
+                axis.line = element_line(size = 0.1, color = "#BBBBB0"),
+                axis.ticks = element_line(size = 0.1, color = "#BBBBB0"),
                 text = element_text(family = "GillSans", size = font_size)
         )
 }

@@ -410,20 +410,19 @@ prep_clin_data <- function(data_path) {
         
         filt_names <- name_key[names(cd) %in% names(name_key)]
         
-        
-        
         names(cd) <- filt_names[names(cd)]
         cd <- cd |> 
-                mutate(b_bin = if_else(b_cell > 0, "hi", "lo"),
-                       cd8_bin = if_else(cd8_rose > 0, "hi", "lo")) |> 
+                mutate(b_bin = if_else(b_cell > 0, "Hi", "Lo"),
+                       cd8_bin = if_else(cd8_rose > 0, "Hi", "Lo")) |> 
                 unite(b8t, b_bin, cd8_bin, remove = FALSE) |> 
                 dplyr::filter((new_death > 0) | is.na(new_death)) |> 
-                dplyr::filter(!is.na(sex))
+                dplyr::filter(!is.na(sex)) |> 
+                mutate(sex = factor(sex, levels = c("male", "female"), labels = c("M", "F")),
+                       b_bin = factor(b_bin, levels = c("Hi", "Lo")))
         
         write_rds(cd, paste0(str_remove(data_path, "unique-tumor-only.Rds"), "tidy-clin-dat.Rds"))
         paste0(str_remove(data_path, "unique-tumor-only.Rds"), "tidy-clin-dat.Rds")
 }
-
 
 # Plotting Helpers -------------------------------------------------------------
 

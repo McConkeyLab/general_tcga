@@ -498,8 +498,8 @@ dense_ind <- function(data_path, x, file_name, color = NULL, facet = NULL) {
                 geom_density() + 
                 facet_grid(rows = vars(!!enq_fac)) + 
                 coord_cartesian(xlim = c(-1, 1)) + 
-                theme_tufte() +
-                theme(legend.position = "none")
+                theme_tufte()
+        
         ggsave(paste0(str_remove(data_path, "tidy-clin-dat.Rds"), file_name), 
                df, 
                width = 3, height = 3)

@@ -227,10 +227,9 @@ norm_tcga_counts <- function(dds_path, hgnc_ids) {
         
         rownames(dds) <- rowData(dds)$hgnc_symbol
         
-        # Remove NA and Blank HUGO Symbols
-        rownames(dds) <- make.names(rownames(dds))
+        # Remove NA HUGO Symbols
         dds <- dds[!is.na(rownames(dds)), ]
-        dds <- dds[(rownames(dds) != ""), ]
+        rownames(dds) <- make.names(rownames(dds))
         
         # Normalize and Scale Counts
         norm_counts <- dds |>
@@ -362,7 +361,7 @@ select_first_duplicate <- function(data_path) {
                 as_tibble() |> 
                 mutate(index = row_number()) |> 
                 arrange(submitter_id) |> 
-                distinct(sample, .keep_all = TRUE)
+                distinct(short_id, .keep_all = TRUE)
         
         unique_tumors <- data[, cd$index]
         
@@ -415,7 +414,7 @@ prep_clin_data <- function(data_path) {
                 mutate(b_bin = if_else(b_cell > 0, "Hi", "Lo"),
                        cd8_bin = if_else(cd8_rose > 0, "Hi", "Lo")) |> 
                 unite(b8t, b_bin, cd8_bin, remove = FALSE) |> 
-                dplyr::filter((new_death > 0) | is.na(new_death)) |> 
+                dplyr::filter((new_death > 0) & !is.na(new_death)) |> 
                 dplyr::filter(!is.na(sex)) |> 
                 mutate(sex = factor(sex, levels = c("male", "female"), labels = c("M", "F")),
                        b_bin = factor(b_bin, levels = c("Hi", "Lo")))

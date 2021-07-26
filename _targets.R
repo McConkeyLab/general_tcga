@@ -2,7 +2,7 @@ library(targets)
 library(tarchetypes)
 library(tibble)
 
-source("R/functions.R")
+source("functions.R")
 
 tar_option_set(
         packages = c(

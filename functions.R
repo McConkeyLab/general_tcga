@@ -46,7 +46,7 @@ make_rm <- function(tcga_common_dir) {
   paste0(tcga_common_dir, "rm.tsv")
 }
 
-get_clin<- function(tcga_data_dir, tcga_proj) {
+get_clin <- function(tcga_data_dir, tcga_proj) {
   
   file_to_download <- 
     glue("http://gdac.broadinstitute.org/runs/stddata__2016_01_28/data/{toupper(tcga_proj)}/20160128/gdac.broadinstitute.org_{toupper(tcga_proj)}.Merge_Clinical.Level_1.2016012800.0.0.tar.gz")
@@ -65,10 +65,10 @@ get_clin<- function(tcga_data_dir, tcga_proj) {
 
 # Wrangle and Tidy -------------------------------------------------------------
 
-tidy_clin <- function(tcga_clin_path) {
+tidy_clin <- function(clin_path) {
   
   clinical <-
-    read_tsv(tcga_clin_path,
+    read_tsv(clin_path,
              col_names = F,
              show_col_types = FALSE) |>
     t() 
@@ -168,7 +168,7 @@ make_man <- function(rm_cases_file, tcga_project) {
 man_to_dds <- function(clin, manifest) {
   manifest <- manifest |> 
     dplyr::select(id, path, submitter_id, short_id, cases.case_id)
-  gdc_set_cache("./01_data/gdcdata", create_without_asking = T)
+  gdc_set_cache("./01_data/00_gdcdata", create_without_asking = T)
   lapply(manifest$id, gdcdata)
   
   
@@ -222,7 +222,7 @@ get_hgnc <- function(tcga_dds = list()) {
   )
 }
 
-norm <- function(dds, ids) {
+normalize <- function(dds, ids) {
   
   ids <- ids[match(rownames(dds), ids$ensembl_gene_id), ]
   rowData(dds) <- cbind(rowData(dds), ids)
@@ -241,7 +241,7 @@ norm <- function(dds, ids) {
   dds
 }
 
-tidy_signatures <- function(signatures_file) {
+tidy_signatures <- function() {
   
   # Pan B-Cell Signature: https://jitc.bmj.com/content/5/1/18.long
   
@@ -342,7 +342,9 @@ bin_gsva <- function(dds) {
     colData() |> 
     as_tibble() |> 
     mutate(b_bin = if_else(b_cell > 0, "Hi", "Lo"),
-           cd8_bin = if_else(cd8_rose > 0, "Hi", "Lo")) |> 
+           b_bin = factor(b_bin, levels = c("Hi", "Lo")),
+           cd8_bin = if_else(cd8_rose > 0, "Hi", "Lo"),
+           cd8_bin = factor(cd8_bin, levels = c("Hi", "Lo"))) |>
     unite(b8t, b_bin, cd8_bin, remove = FALSE) |> 
     DataFrame()
   
@@ -395,29 +397,35 @@ make_clin_table <- function(dds, project) {
   dds |> 
     colData() |>
     as_tibble() |> 
-    dplyr::select(-(sample:cases.case_id)) |> 
+    dplyr::select(-(sample:followUp_days)) |> 
     tbl_summary(by = sex) |> 
-    add_overall() |> 
+    add_overall(last = TRUE) |> 
     as_gt() |> 
     gtsave(file_name)
   file_name
 }
 
-dense_ind <- function(data_path, x, file_name, color = NULL, facet = NULL) {
-  get_gill()
+dense_ind <- function(data, x, file_name, project, color = NULL, facet = NULL, width = 3, height = 3) {
+
+  proj_fig_dir <- tar_read_raw(paste0("fig_dir_", project))
+  file_name <- paste0(proj_fig_dir, file_name)
+  
   enq_fac <- enquo(facet)
-  df <- data_path |> 
-    read_rds() |> 
+  
+  this_plot <- data |> 
+    colData() |> 
+    as_tibble() |> 
     ggplot(aes(x = {{ x }}, color = {{ color }})) + 
     geom_density() + 
     facet_grid(rows = vars(!!enq_fac)) + 
     coord_cartesian(xlim = c(-1, 1)) + 
-    theme_tufte()
+    theme_tufte(10)
   
-  ggsave(paste0(str_remove(data_path, "tidy-clin-dat.Rds"), file_name), 
-         df, 
-         width = 3, height = 3)
-  paste0(str_remove(data_path, "tidy-clin-dat.Rds"), file_name)
+  agg_png(file_name, width = width, height = height,  units = "in", res = 288)
+  print(this_plot)
+  dev.off()
+
+  file_name
 }
 
 surv_ind <- function(data, strata, file_name, project, 
@@ -476,14 +484,13 @@ surv_ind <- function(data, strata, file_name, project,
   args <- list(fit = fit, data = data, pval = TRUE, pval.coord = c(0, 0.1), 
                legend.labs = legend_labs, legend.title = legend_title,
                break.time.by = 365.25, xscale = "d_m", size = 0.5, 
-               pval.size = 6, font.x = 15, font.y = 15)
-  
+               pval.size = 6, font.x = 15, font.y = 15, font.tickslab = 7)
   if (is.null(facet) || data[[facet]] |> unique() |> length() == 1) {
     ggsurv <- do.call(ggsurvplot, c(args))
     ggsurv <- ggsurv$plot
   } else {
     ggsurv <- do.call(ggsurvplot_facet2, c(args, facet.by = facet, short.panel.labs = TRUE))
-    width <- 9
+    width <- 8
   }
   
   ggsurv <- ggsurv +
@@ -499,7 +506,6 @@ surv_ind <- function(data, strata, file_name, project,
 }
 
 density_pan_immune_cell <- function(tcga_dds = list()) {
-  get_gill() 
   b_dens <- tcga_dds |> 
     map(\(x) {
       x <- x |> 
@@ -519,7 +525,6 @@ density_pan_immune_cell <- function(tcga_dds = list()) {
 }
 
 test_plot <- function(tcga_dds = list()) {
-  get_gill()
   sigs <- tcga_dds |> 
     map(\(x) {
       x <- x |> 

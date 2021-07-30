@@ -373,8 +373,7 @@ theme_tufte <- function(font_size = 30) {
 }
 
 # Taken from user allan-cameron on StackOverflow
-ggsurvplot_facet2 <- function(pval.size = 5, ...)
-{
+ggsurvplot_facet2 <- function(pval.size = 5, ...) {
   newcall <- bquote(
     p <- p + geom_text(data = pvals.df, aes(x = pval.x, y = pval.y, 
                                             label = pval.txt), size = .(pval.size), hjust = 0)

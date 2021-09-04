@@ -36,6 +36,7 @@ mapped <- tar_map(
   
   # Analysis -------------------------------------------------------------
   tar_target(norm, normalize(dds, gene_ids)),
+  tar_target(norm_file, write_norm(norm, project)),
   tar_target(gsva_scores, run_gsva(norm, gene_signatures)),
   tar_target(dds_w_scores, merge_gsva(norm, gsva_scores)),
   tar_target(dds_w_bin_scores, bin_gsva(dds_w_scores)),

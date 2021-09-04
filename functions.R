@@ -241,6 +241,10 @@ normalize <- function(dds, ids) {
   dds
 }
 
+write_norm <- function(dds, project) {
+  write_rds(dds, paste0("./01_data/", project, "/norm.Rds"))
+}
+
 tidy_signatures <- function() {
   
   # Pan B-Cell Signature: https://jitc.bmj.com/content/5/1/18.long

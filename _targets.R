@@ -80,14 +80,4 @@ list(
   mapped, 
   tar_combine(combined_dds, mapped[[6]], command = list(!!!.x)),
   tar_target(gene_ids, get_hgnc(combined_dds))
-  
-  
-  # tar_combine(combined_gsva, mapped[[10]]),
-  # 
-  # tar_combine(combined_clin, mapped[[11]]),
-  # tar_target(b_surv, survival_b_cell(combined_clin))
-  # tar_target(b_dens, density_b_cell(combined_clin)),
-  # tar_target(pan_dens, density_pan_immune_cell(combined_clin)),
-  # 
-  # tar_target(tp, test_plot(combined_gsva))
 )

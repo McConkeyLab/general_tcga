@@ -348,7 +348,9 @@ bin_gsva <- function(dds) {
     mutate(b_bin = if_else(b_cell > 0, "Hi", "Lo"),
            b_bin = factor(b_bin, levels = c("Hi", "Lo")),
            cd8_bin = if_else(cd8_rose > 0, "Hi", "Lo"),
-           cd8_bin = factor(cd8_bin, levels = c("Hi", "Lo"))) |>
+           cd8_bin = factor(cd8_bin, levels = c("Hi", "Lo")),
+           imm_bin = if_else(exp_immune > 0, "Hi", "Lo"),
+           imm_bin = factor(imm_bin, levels = c("Hi", "Lo"))) |>
     unite(b8t, b_bin, cd8_bin, remove = FALSE) |> 
     DataFrame()
   
@@ -357,6 +359,54 @@ bin_gsva <- function(dds) {
   dds
   
 }
+
+# Survival ---------------------------------------------------------------------
+
+get_hr <- function(dds, stratum, project) { 
+    cd <- colData(dds) |> as_tibble() |> 
+      mutate(across(.cols = c(b_bin, cd8_bin, imm_bin), ~fct_rev(.x)))
+    cd_m <- dplyr::filter(cd, sex == "M")
+    cd_f <- dplyr::filter(cd, sex == "F")
+    form <- as.formula(paste("Surv(new_death, death_event) ~ age + ", stratum))
+    fit_cox <- function(df) {
+      coxph(form, data = df) |> 
+        tidy(conf.int = TRUE, exponentiate = TRUE)
+    }
+    bind_rows(fit_cox(cd), fit_cox(cd_m), fit_cox(cd_f)) |> 
+      dplyr::filter(term != "age") |> 
+      mutate(group = c("all", "male", "female"),
+             project = project)
+}
+
+get_survdiff <- function(dds, stratum, project, sub_stratum = NULL, sub_stratum_level = NULL) {
+  cd <- colData(dds) |> as_tibble() |> 
+    mutate(across(.cols = c(b_bin, cd8_bin, imm_bin), ~fct_rev(.x)))
+  if (!missing(sub_stratum) & !missing(sub_stratum_level)) {
+    cd <- dplyr::filter(cd, {{ sub_stratum }} == sub_stratum_level)
+  }
+
+  form <- as.formula(paste("Surv(new_death, death_event) ~ ", stratum))
+  survdiff_tidy <- function(df) {
+    survdiff(form, data = df) |> 
+      glance()
+  }
+  
+  if (stratum != "sex") {
+    cd_m <- dplyr::filter(cd, sex == "M")
+    cd_f <- dplyr::filter(cd, sex == "F")
+    bind_rows(survdiff_tidy(cd), survdiff_tidy(cd_m), survdiff_tidy(cd_f)) |> 
+      mutate(group = c("all", "male", "female"),
+             project = project,
+             stratum = stratum)
+  } else {
+    survdiff_tidy(cd) |> 
+      mutate(group = "all",
+             project = project,
+             stratum = "sex")
+  }
+}
+
+
 
 # Plotting Helpers -------------------------------------------------------------
 
@@ -372,7 +422,7 @@ theme_tufte <- function(font_size = 30) {
     legend.key = element_blank(),
     axis.line = element_line(size = 0.1, color = "#BBBBB0"),
     axis.ticks = element_line(size = 0.3, color = "#BBBBB0"),
-    text = element_text(family = "Gill Sans", size = font_size)
+    text = element_text(family = "Gill Sans MT", size = font_size)
   )
 }
 
@@ -508,40 +558,31 @@ surv_ind <- function(data, strata, file_name, project,
   file_name
 }
 
-density_pan_immune_cell <- function(tcga_dds = list()) {
-  b_dens <- tcga_dds |> 
-    map(\(x) {
-      x <- x |> 
-        read_rds()
-      x <- cbind(exp_immune = x$exp_immune, sex = x$sex) |>
-        as_tibble() |> 
-        mutate(exp_immune = as.numeric(exp_immune))
-    }) |> 
-    bind_rows(.id = "proj")
-  print(b_dens)
-  b_dens <- ggplot(b_dens, aes(x = exp_immune)) +
-    geom_density() + 
-    facet_wrap(~proj) + 
-    theme_tufte(20) + 
-    theme(legend.position = "none")
-  ggsave("denseplot_exp-immune.png", b_dens, width = 10, height = 10)
-}
+## Aggregate Project Plots -----------------------------------------------------
 
-test_plot <- function(tcga_dds = list()) {
-  sigs <- tcga_dds |> 
-    map(\(x) {
-      x <- x |> 
-        read_rds()
-      x <- cbind(x$b_cell, x$cd8_rose) |>
-        as_tibble() |> 
-        setNames(c("b", "cd8t"))
-    }) |> 
-    bind_rows(.id = "proj")
-  ggplot(sigs, aes(x = b, y = cd8t, color = proj)) + 
-    scale_color_viridis_d(option = "plasma", end = 0.8) +
-    geom_point(size = 3, alpha = 0.5, shape = 16) + 
-    facet_wrap(~proj) +
-    theme_tufte() + 
-    theme(legend.position = "none")
-  ggsave("./test-plot.png", width = 10, height = 10)
+make_hr_plot <- function(data) {
+  hr_plot <- data |> 
+    mutate(project = toupper(project),
+           group = case_when(group == "all" ~ "All",
+                             group == "female" ~ "F",
+                             group == "male" ~ "M"),
+           group = factor(group, levels = c("F", "M", "All")),
+           term = case_when(term == "b_binHi" ~ "B-cell Signature",
+                            term == "cd8_binHi" ~ "CD8+ T-cell Signature",
+                            term == "imm_binHi" ~ "Pan-Immune Signature")) |> 
+    ggplot(aes(x = estimate, y = group, color = group)) +
+    geom_vline(xintercept = 1, alpha = 0.5) + 
+    scale_color_manual(values = c("#F8B7CD", "#0671B7", "black")) + 
+    geom_linerange(aes(xmin = conf.low, xmax = conf.high)) + 
+    geom_point() + 
+    facet_grid(project~term) + 
+    theme_tufte(10) + 
+    labs(x = "Hazard Ratio") + 
+    theme(legend.position = "none",
+          axis.title.y = element_blank())
+  
+  agg_png("./00_common/hr-plot.png", width = 6, height = 8, units = "in", res = 288)
+  print(hr_plot)
+  dev.off()
+  "./00_common/hr-plot.png"
 }

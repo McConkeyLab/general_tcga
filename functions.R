@@ -96,7 +96,7 @@ tidy_clin <- function(clin_path) {
                   anatomic_subdivision = matches("^patient.anatomic_neoplasm_subdivision$"),
                   grade = matches("^patient.neoplasm_histologic_grade$")) |> 
     mutate(across(contains("tnm"), ~str_remove(., "(?<=[:digit:])[:alpha:]$"))) |> 
-    mutate(across(contains("path_stage"), ~str_remove(., "(?<=[iv])[:alpha:]$")))
+    mutate(across(contains("path_stage"), ~str_remove(., "[^iv]$")))
     
   
   # Create Survival Time Column
@@ -376,7 +376,7 @@ get_hr_simple <- function(data, stratum, show_glance) {
 univariate <- function(dds, show_glance = F) {
   data <- dds |> colData() |> as_tibble()
   # Remove ID columns
-  data <- dplyr::select(data, -c(sample:followUp_days))
+  data <- dplyr::select(data, -c(sample:cases.case_id))
   
   # Remove columns that are all NA
   na_sums <- apply(data, 2, \(x) is.na(x) |> sum())
@@ -387,7 +387,7 @@ univariate <- function(dds, show_glance = F) {
   no_x <- no_nas |>
     mutate(across(contains("tnm"), ~ str_replace(.x, ".*x$", NA_character_)))
   
-  map(colnames(no_x), ~ get_hr(data = no_x, stratum = .x, show_glance = show_glance)) |> 
+  map(colnames(no_x), ~ get_hr_simple(data = no_x, stratum = .x, show_glance = show_glance)) |> 
     enframe() |> 
     unnest(cols = c(value))
 }

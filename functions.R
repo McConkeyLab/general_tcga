@@ -87,10 +87,17 @@ tidy_clin <- function(clin_path) {
                   race = patient.race_list.race,
                   days_to_collection = matches("^patient.samples.sample.days_to_collection$"),
                   path_stage = matches("^patient.stage_event.pathologic_stage$"),
-                  tnm_t = matches("^patient.stage_event.tnm_categories.pathologic_categories.pathologic_t$"),
-                  tnm_n = matches("^patient.stage_event.tnm_categories.pathologic_categories.pathologic_n$"),
-                  tnm_m = matches("^patient.stage_event.tnm_categories.pathologic_categories.pathologic_m$"),
-                  anatomic_subdivision = matches("^patient.anatomic_neoplasm_subdivision$"))
+                  pathologic_tnm_t = matches("^patient.stage_event.tnm_categories.pathologic_categories.pathologic_t$"),
+                  pathologic_tnm_n = matches("^patient.stage_event.tnm_categories.pathologic_categories.pathologic_n$"),
+                  pathologic_tnm_m = matches("^patient.stage_event.tnm_categories.pathologic_categories.pathologic_m$"),
+                  clinical_tnm_t = matches("^patient.stage_event.tnm_categories.clinical_categories.clinical_t$"),
+                  clinical_tnm_n = matches("^patient.stage_event.tnm_categories.clinical_categories.clinical_n$"),
+                  clinical_tnm_m = matches("^patient.stage_event.tnm_categories.clinical_categories.clinical_m$"),
+                  anatomic_subdivision = matches("^patient.anatomic_neoplasm_subdivision$"),
+                  grade = matches("^patient.neoplasm_histologic_grade$")) |> 
+    mutate(across(contains("tnm"), ~str_remove(., "(?<=[:digit:])[:alpha:]$"))) |> 
+    mutate(across(contains("path_stage"), ~str_remove(., "(?<=[iv])[:alpha:]$")))
+    
   
   # Create Survival Time Column
   get_latest <- function(data) {
@@ -117,20 +124,22 @@ tidy_clin <- function(clin_path) {
     tibble(death, fu) |>
     cbind(clinical) |> 
     mutate(
-      new_death = if_else(is.na(death_days), followUp_days, death_days),
-      death_event = if_else(patient.vital_status == "dead" | !is.na(death_days), 1, 0)
+      follow_up_time = if_else(is.na(death_days), followUp_days, death_days),
+      death = if_else(patient.vital_status == "dead" | !is.na(death_days), 1, 0)
     ) |>
     dplyr::select(-contains("days_to_death"),
                   -contains("days_to_last_followup"),
                   -patient.vital_status) |> 
-    dplyr::filter((new_death >= 0) & !is.na(new_death)) |>
-    dplyr::filter((new_death > 0) | (death_event == 0)) |> 
+    dplyr::filter((follow_up_time >= 0) & !is.na(follow_up_time)) |>
+    dplyr::filter((follow_up_time > 0) | (death == 0)) |> 
     # For reasoning as to the above filtering rule, see
     # https://www.graphpad.com/support/faq/events-deaths-at-time-zero-in-survival-analysis/
     dplyr::filter(!is.na(sex)) |> 
     mutate(sex = factor(sex, levels = c("male", "female"), labels = c("M", "F")),
            age = as.numeric(age),
-           days_to_collection = as.numeric(days_to_collection))
+           days_to_collection = as.numeric(days_to_collection)) |> 
+    mutate(across(matches("grade|race"), fct_rev)) |> 
+    dplyr::select(-death_days, -followUp_days)
 }
 
 make_man <- function(rm_cases_file, tcga_project) {
@@ -249,48 +258,20 @@ tidy_signatures <- function() {
   
   # Pan B-Cell Signature: https://jitc.bmj.com/content/5/1/18.long
   
-  # CD8+ T Effector Signature (cd8_rosen): https://www.ncbi.nlm.nih.gov/pmc/articles/PMC5480242/#SD1
+  # CD8+ T Effector Signature: https://www.ncbi.nlm.nih.gov/pmc/articles/PMC5480242/#SD1
   # Supplementary figure 6
-  
-  # CD8+ T (cd8_prat): https://cancerres.aacrjournals.org/content/canres/77/13/3540/F1.large.jpg?width=800&height=600&carousel=1
-  
-  # CD8+ T (cd8_sade): https://www.ncbi.nlm.nih.gov/pmc/articles/PMC6641984/bin/NIHMS1510803-supplement-11.xlsx
-  
-  # CD8+ T (cd8_fehr): https://www.thelancet.com/journals/lancet/article/PIIS0140-6736(16)00587-0/fulltext
-  
-  # IFNg Signature: https://www.jci.org/articles/view/91190/table/2
   
   # Expanded Immune Signature: https://www.jci.org/articles/view/91190
   # Table 2
   
-  # Myeloid Inflammation Signature: https://www.nature.com/articles/s41591-018-0053-3/figures/2
+  b_cell <- c("BLK", "CD19", "FCRL2", "MS4A1", "KIAA0125", "TNFRSF17", "TCL1A",
+              "SPIB", "PNOC")
+  cd8 <- c("CD8A", "GZMA", "GZMB", "IFNG", "CXCL9", "CXCL10", "PRF1", "TBX21")
+  exp_immune <- c("CD3D", "IDO1", "CIITA", "CD3E", "CCL5", "GZMK", "CD2", 
+                  "HLA-DRA", "CXCL13", "IL2RG", "NKG7", "HLA-E", "CXCR6", "LAG3", 
+                  "TAGAP", "CXCL10", "STAT1", "GZMB")
   
-  b_cell <- c(
-    "BLK", "CD19", "FCRL2", "MS4A1", "KIAA0125", "TNFRSF17", "TCL1A",
-    "SPIB", "PNOC"
-  )
-  cd8_rosen <- c(
-    "CD8A", "GZMA", "GZMB", "IFNG", "CXCL9", "CXCL10", "PRF1", "TBX21"
-  )
-  cd8_prat <- c("PRF1", "CD8A", "CD8B", "GZMM", "FLT3LG")
-  cd8_sade <- c(
-    "IL7R", "GPR183", "LMNA", "NR4A3", "TCF7", "MGAT4A", "CD55", "AIM1", "PER1",
-    "FOSL2", "EGFR1", "TSPYL2", "YPEL5", "CSRNP1", "REL", "SKIL", "PIK3R1",
-    "FOXP1", "RGCC", "PFKFB3", "MYADM", "ZFP36L2", "USP36", "TC2N", "FAM177A1",
-    "BTG2", "TSC22D2", "FAM65B", "STAT4", "RGP5", "NEU1", "IRFD1", "PDE4B",
-    "NR4A1"
-  )
-  cd8_fehr <- c("CD8A", "EOMES", "PRF1", "IFNG", "CD274")
-  ifng <- c("IDO1", "CXCL10", "CXCL9", "HLA-DRA", "STAT1", "IFNG")
-  myeloid_inf <- c("CXCL1", "CXCL2", "CXCL3", "CXCL8", "IL6", "PTGS2")
-  
-  exp_immune <- c("CD3D", "IDO1", "CIITA", "CD3E", "CCL5", "GZMK", "CD2", "HLA-DRA", "CXCL13", "IL2RG", "NKG7", "HLA-E", "CXCR6", "LAG3", "TAGAP", "CXCL10", "STAT1", "GZMB")
-  
-  signatures <- list(
-    b_cell = b_cell, cd8_rose = cd8_rosen,
-    cd8_prat = cd8_prat, cd8_fehr = cd8_fehr, ifng = ifng,
-    myeloid_inf = myeloid_inf, exp_immune = exp_immune
-  )
+  signatures <- list(b_cell = b_cell, cd8 = cd8, exp_immune = exp_immune)
   
 }
 
@@ -298,7 +279,6 @@ run_gsva <- function(dds, signatures) {
   
   # Foresight:
   signatures$b_cell[(signatures$b_cell == "KIAA0125")] <- "FAM30A"
-  signatures$ifng[(signatures$ifng == "HLA-DRA")] <- "HLA.DRA"
   signatures$exp_immune[(signatures$exp_immune == "HLA-DRA")] <- "HLA.DRA"
   signatures$exp_immune[(signatures$exp_immune == "HLA-E")] <- "HLA.E"
   
@@ -347,11 +327,10 @@ bin_gsva <- function(dds) {
     as_tibble() |> 
     mutate(b_bin = if_else(b_cell > 0, "Hi", "Lo"),
            b_bin = factor(b_bin, levels = c("Hi", "Lo")),
-           cd8_bin = if_else(cd8_rose > 0, "Hi", "Lo"),
+           cd8_bin = if_else(cd8 > 0, "Hi", "Lo"),
            cd8_bin = factor(cd8_bin, levels = c("Hi", "Lo")),
            imm_bin = if_else(exp_immune > 0, "Hi", "Lo"),
            imm_bin = factor(imm_bin, levels = c("Hi", "Lo"))) |>
-    unite(b8t, b_bin, cd8_bin, remove = FALSE) |> 
     DataFrame()
   
   colData(dds) <- col_data
@@ -362,21 +341,58 @@ bin_gsva <- function(dds) {
 
 # Survival ---------------------------------------------------------------------
 
-get_hr <- function(dds, stratum, project) { 
+get_hr <- function(dds, stratum, project, keep_only_first = TRUE) { 
     cd <- colData(dds) |> as_tibble() |> 
       mutate(across(.cols = c(b_bin, cd8_bin, imm_bin), ~fct_rev(.x)))
     cd_m <- dplyr::filter(cd, sex == "M")
     cd_f <- dplyr::filter(cd, sex == "F")
-    form <- as.formula(paste("Surv(new_death, death_event) ~ age + ", stratum))
-    fit_cox <- function(df) {
-      coxph(form, data = df) |> 
-        tidy(conf.int = TRUE, exponentiate = TRUE)
+    form <- as.formula(paste("Surv(follow_up_time, death) ~ ", stratum))
+    fit_cox <- function(df, group) {
+      fit <- coxph(form, data = df) |> 
+        tidy(conf.int = TRUE, exponentiate = TRUE) |> 
+        bind_cols(group = group)
+      
+      if (keep_only_first) {
+        fit <- fit[1,]
+      }
+      fit
     }
-    bind_rows(fit_cox(cd), fit_cox(cd_m), fit_cox(cd_f)) |> 
-      dplyr::filter(term != "age") |> 
-      mutate(group = c("all", "male", "female"),
-             project = project)
+    bind_rows(fit_cox(cd, "all"), fit_cox(cd_m, "male"), fit_cox(cd_f, "female")) |> 
+      mutate(project = project)
 }
+
+get_hr_simple <- function(data, stratum, show_glance) {
+  res <- as.formula(paste("Surv(follow_up_time, death) ~ ", stratum)) |> 
+    coxph(data)
+  if (show_glance) {
+    res <- glance(res)
+  } else {
+    res <- tidy(res, exponentiate = TRUE, conf.int = TRUE)
+  }
+  res
+    
+}
+
+univariate <- function(dds, show_glance = F) {
+  data <- dds |> colData() |> as_tibble()
+  # Remove ID columns
+  data <- dplyr::select(data, -c(sample:followUp_days))
+  
+  # Remove columns that are all NA
+  na_sums <- apply(data, 2, \(x) is.na(x) |> sum())
+  just_nas <- which(na_sums == nrow(data))
+  no_nas <- data[,-just_nas]
+  
+  # Remove TNM 'x'
+  no_x <- no_nas |>
+    mutate(across(contains("tnm"), ~ str_replace(.x, ".*x$", NA_character_)))
+  
+  map(colnames(no_x), ~ get_hr(data = no_x, stratum = .x, show_glance = show_glance)) |> 
+    enframe() |> 
+    unnest(cols = c(value))
+}
+
+
 
 get_survdiff <- function(dds, stratum, project, sub_stratum = NULL, sub_stratum_level = NULL) {
   cd <- colData(dds) |> as_tibble() |> 
@@ -385,7 +401,7 @@ get_survdiff <- function(dds, stratum, project, sub_stratum = NULL, sub_stratum_
     cd <- dplyr::filter(cd, {{ sub_stratum }} == sub_stratum_level)
   }
 
-  form <- as.formula(paste("Surv(new_death, death_event) ~ ", stratum))
+  form <- as.formula(paste("Surv(follow_up_time, death) ~ ", stratum))
   survdiff_tidy <- function(df) {
     survdiff(form, data = df) |> 
       glance()
@@ -447,11 +463,19 @@ make_clin_table <- function(dds, project) {
   proj_fig_dir <- tar_read_raw(paste0("fig_dir_", project))
   file_name <- paste0(proj_fig_dir, "clin-table.png")
   
-  dds |> 
+  temp <- dds |> 
     colData() |>
     as_tibble() |> 
-    dplyr::select(-(sample:followUp_days)) |> 
-    tbl_summary(by = sex) |> 
+    dplyr::select(-(sample:cases.case_id))
+  
+  colnames(temp) <- colnames(temp) |> 
+    str_replace_all("_", " ") |> 
+    str_to_title() |> 
+    str_replace_all("Cd8", "CD8+") |> 
+    str_replace_all("Bin", "Signature") |> 
+    str_replace_all("Tnm", "TNM")
+  temp |> 
+    tbl_summary(by = Sex) |> 
     add_overall(last = TRUE) |> 
     as_gt() |> 
     gtsave(file_name)
@@ -529,7 +553,7 @@ surv_ind <- function(data, strata, file_name, project,
   }
   
   ivs <- paste(strata, collapse = " + ")
-  form <- as.formula(paste("Surv(new_death, death_event) ~", ivs))
+  form <- as.formula(paste("Surv(follow_up_time, death) ~", ivs))
   
   fit <- surv_fit(form, data = data)
   data <- as.data.frame(data)

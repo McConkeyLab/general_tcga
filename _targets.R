@@ -49,8 +49,8 @@ mapped <- tar_map(
   tar_target(hi_b_survdiff, get_survdiff(dds_w_bin_scores, "sex + age + pathologic_tnm_t", project, b_bin, "Hi")),
   tar_target(lo_b_survdiff, get_survdiff(dds_w_bin_scores, "sex + age + pathologic_tnm_t", project, b_bin, "Lo")),
   tar_target(sex_survdiff, get_survdiff(dds_w_bin_scores, "sex + age + pathologic_tnm_t", project)),
-  tar_target(univariate_tidy, univariate(dds_w_bin_scores)),
-  tar_target(univariate_glance, univariate(dds_w_bin_scores, T)),
+  tar_target(univariate_tidy, univariate(dds_w_bin_scores, project)),
+  tar_target(univariate_glance, univariate(dds_w_bin_scores, project, T)),
   tar_target(univariate_both, full_join(univariate_tidy, univariate_glance, by = "name")),
   
   # Plots ---------------------------------------------------------------- 

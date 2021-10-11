@@ -96,7 +96,7 @@ tidy_clin <- function(clin_path) {
                   anatomic_subdivision = matches("^patient.anatomic_neoplasm_subdivision$"),
                   grade = matches("^patient.neoplasm_histologic_grade$")) |> 
     mutate(across(contains("tnm"), ~str_remove(., "(?<=[:digit:])[:alpha:]$"))) |> 
-    mutate(across(contains("path_stage"), ~str_remove(., "[^iv]$")))
+    mutate(across(contains("path_stage"), ~str_remove(., "[^0iv]$")))
     
   
   # Create Survival Time Column
@@ -373,10 +373,42 @@ get_hr_simple <- function(data, stratum, show_glance) {
     
 }
 
-univariate <- function(dds, show_glance = F) {
+univariate <- function(dds, project, show_glance = F) {
+
   data <- dds |> colData() |> as_tibble()
   # Remove ID columns
   data <- dplyr::select(data, -c(sample:cases.case_id))
+  
+  
+  # Project specific cases
+  if (project %in% c("blca", "hnsc", "luad", "lusc", "stad")) {
+    data <- data |>   
+      dplyr::mutate(pathologic_tnm_n = if_else(!(pathologic_tnm_n %in% c("n0", "nx")), "n+", pathologic_tnm_n))
+  }
+  
+  if (project == "blca") {
+    data <- data |> 
+      dplyr::filter(path_stage != "stage i") |> 
+      dplyr::filter(!(pathologic_tnm_t %in% c("t0", "t1")))
+  }
+  if (project == "hnsc") {
+    data <- data |> 
+      dplyr::mutate(path_stage = if_else(path_stage %in% c("stage i", "stage ii"), "stage i/ii", path_stage),
+                    pathologic_tnm_t = if_else(pathologic_tnm_t %in% c("t0", "t1", "t2"), "t0/1/2", pathologic_tnm_t), 
+                    clinical_tnm_t = if_else(clinical_tnm_t %in% c("t1", "t2"), "t1/2", clinical_tnm_t))
+  }
+  
+  if (project == "kirc") {
+    data <- data |> 
+      dplyr::mutate(pathologic_tnm_t = if_else(pathologic_tnm_t %in% c("stage iii", "stage iv"), "stage iii/iv", pathologic_tnm_t,),
+                    grade = if_else(grade %in% c("g1", "g2"), "g1/2", as.character(grade)))
+  }
+  
+  if (project == "lihc") {
+    data <- data |> 
+      dplyr::mutate(path_stage =  if_else(path_stage %in% c("stage iii", "stage iv"), "stage iv", path_stage),
+                    pathologic_tnm_t = if_else(pathologic_tnm_t %in% c("t3, t4"), "t3/4", pathologic_tnm_t))
+  }
   
   # Remove columns that are all NA
   na_sums <- apply(data, 2, \(x) is.na(x) |> sum())
@@ -385,7 +417,8 @@ univariate <- function(dds, show_glance = F) {
   
   # Remove TNM 'x'
   no_x <- no_nas |>
-    mutate(across(contains("tnm"), ~ str_replace(.x, ".*x$", NA_character_)))
+    mutate(across(contains("tnm"), ~ str_replace(.x, ".*x$", NA_character_))) |> 
+    mutate(across(matches("^grade$"), ~ str_replace(.x, ".*x$", NA_character_)))
   
   map(colnames(no_x), ~ get_hr_simple(data = no_x, stratum = .x, show_glance = show_glance)) |> 
     enframe() |> 

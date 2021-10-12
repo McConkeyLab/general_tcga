@@ -174,12 +174,16 @@ make_man <- function(rm_cases_file, tcga_project) {
     distinct(short_id, .keep_all = TRUE)
 }
 
-man_to_dds <- function(clin, manifest) {
+download_tcga_data <- function(manifest) {
   manifest <- manifest |> 
     dplyr::select(id, path, submitter_id, short_id, cases.case_id)
   gdc_set_cache("./01_data/00_gdcdata", create_without_asking = T)
   lapply(manifest$id, gdcdata)
-  
+  manifest
+}
+
+man_to_dds <- function(clin, manifest) {
+
   
   # Some samples may be in the manifest but not in the clinical data.
   
@@ -381,7 +385,11 @@ univariate <- function(dds, show_glance = F) {
   # Remove columns that are all NA
   na_sums <- apply(data, 2, \(x) is.na(x) |> sum())
   just_nas <- which(na_sums == nrow(data))
-  no_nas <- data[,-just_nas]
+  if(length(just_nas) == 0) {
+    no_nas <- data
+  } else {
+    no_nas <- data[,-just_nas]
+  }
   
   # Remove TNM 'x'
   no_x <- no_nas |>

@@ -32,7 +32,8 @@ mapped <- tar_map(
   # Wrangling and tidying ------------------------------------------------
   tar_target(clin, tidy_clin(clin_dirty)),
   tar_target(man, make_man(rm_cases, project)),
-  tar_target(dds, man_to_dds(clin, man)),
+  tar_target(man_w_paths, download_tcga_data(man)),
+  tar_target(dds, man_to_dds(clin, man_w_paths)),
   
   # Analysis -------------------------------------------------------------
   tar_target(norm, normalize(dds, gene_ids)),
@@ -150,12 +151,12 @@ list(
   tar_target(gene_signatures, tidy_signatures()),
   tar_target(rm_cases, make_rm(common_dir), format = "file"),
   mapped, 
-  tar_combine(combined_dds, mapped[[6]], command = list(!!!.x)),
+  tar_combine(combined_dds, mapped[[7]], command = list(!!!.x)),
   tar_target(gene_ids, get_hgnc(combined_dds)),
-  tar_combine(combined_hrs, mapped[[12]], mapped[[13]], mapped[[14]], command = rbind(!!!.x)),
-  tar_target(hr_plot, make_hr_plot(combined_hrs)),
-  tar_combine(combined_survdiffs, mapped[[15]], mapped[[16]], mapped[[17]], command = rbind(!!!.x)),
-  tar_combine(combined_survdiffs_hi_b, mapped[[18]], command = rbind(!!!.x)),
-  tar_combine(combined_survdiffs_lo_b, mapped[[19]], command = rbind(!!!.x)),
-  tar_combine(combined_survdiffs_sex, mapped[[20]], command = rbind(!!!.x))
+  tar_combine(combined_hrs, mapped[[13]], mapped[[14]], mapped[[15]], command = rbind(!!!.x)),
+  tar_target(hr_plot, make_hr_plot(combined_hrs), format = "file"),
+  tar_combine(combined_survdiffs, mapped[[16]], mapped[[17]], mapped[[18]], command = rbind(!!!.x)),
+  tar_combine(combined_survdiffs_hi_b, mapped[[19]], command = rbind(!!!.x)),
+  tar_combine(combined_survdiffs_lo_b, mapped[[20]], command = rbind(!!!.x)),
+  tar_combine(combined_survdiffs_sex, mapped[[21]], command = rbind(!!!.x))
 )

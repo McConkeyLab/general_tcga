@@ -87,6 +87,7 @@ tidy_clin <- function(clin_path) {
                   race = patient.race_list.race,
                   days_to_collection = matches("^patient.samples.sample.days_to_collection$"),
                   path_stage = matches("^patient.stage_event.pathologic_stage$"),
+                  clin_stage = matches("^patient.stage_event.clinical_stage$"),
                   pathologic_tnm_t = matches("^patient.stage_event.tnm_categories.pathologic_categories.pathologic_t$"),
                   pathologic_tnm_n = matches("^patient.stage_event.tnm_categories.pathologic_categories.pathologic_n$"),
                   pathologic_tnm_m = matches("^patient.stage_event.tnm_categories.pathologic_categories.pathologic_m$"),
@@ -96,7 +97,7 @@ tidy_clin <- function(clin_path) {
                   anatomic_subdivision = matches("^patient.anatomic_neoplasm_subdivision$"),
                   grade = matches("^patient.neoplasm_histologic_grade$")) |> 
     mutate(across(contains("tnm"), ~str_remove(., "(?<=[:digit:])[:alpha:]$"))) |> 
-    mutate(across(contains("path_stage"), ~str_remove(., "[^0iv]$")))
+    mutate(across(matches("path_stage|clin_stage"), ~str_remove(., "[^0iv]$")))
     
   
   # Create Survival Time Column
@@ -203,7 +204,7 @@ man_to_dds <- function(clin, manifest) {
                              fileName = tumor_data$path)
   
   dds <- DESeqDataSetFromHTSeqCount(sampleTable = sample_table,
-                                    directory = gdc_cache(),
+                                    directory = "./01_data/00_gdcdata",
                                     design = ~1)
   
   samples <- tumor_data[match(colnames(dds), tumor_data$id), ]
@@ -366,6 +367,7 @@ get_hr <- function(dds, stratum, project, keep_only_first = TRUE) {
 }
 
 get_hr_simple <- function(data, stratum, show_glance) {
+  stratum <- setdiff(stratum, c("follow_up_time", "death"))
   res <- as.formula(paste("Surv(follow_up_time, death) ~ ", stratum)) |> 
     coxph(data)
   if (show_glance) {
@@ -380,40 +382,9 @@ get_hr_simple <- function(data, stratum, show_glance) {
 univariate <- function(dds, project, show_glance = F) {
 
   data <- dds |> colData() |> as_tibble()
-  # Remove ID columns
-  data <- dplyr::select(data, -c(sample:cases.case_id))
-  
-  
-  # Project specific cases
-  if (project %in% c("blca", "hnsc", "luad", "lusc", "stad")) {
-    data <- data |>   
-      dplyr::mutate(pathologic_tnm_n = if_else(!(pathologic_tnm_n %in% c("n0", "nx")), "n+", pathologic_tnm_n))
-  }
-  
-  if (project == "blca") {
-    data <- data |> 
-      dplyr::filter(path_stage != "stage i") |> 
-      dplyr::filter(!(pathologic_tnm_t %in% c("t0", "t1")))
-  }
-  if (project == "hnsc") {
-    data <- data |> 
-      dplyr::mutate(path_stage = if_else(path_stage %in% c("stage i", "stage ii"), "stage i/ii", path_stage),
-                    pathologic_tnm_t = if_else(pathologic_tnm_t %in% c("t0", "t1", "t2"), "t0/1/2", pathologic_tnm_t), 
-                    clinical_tnm_t = if_else(clinical_tnm_t %in% c("t1", "t2"), "t1/2", clinical_tnm_t))
-  }
-  
-  if (project == "kirc") {
-    data <- data |> 
-      dplyr::mutate(pathologic_tnm_t = if_else(pathologic_tnm_t %in% c("stage iii", "stage iv"), "stage iii/iv", pathologic_tnm_t,),
-                    grade = if_else(grade %in% c("g1", "g2"), "g1/2", as.character(grade)))
-  }
-  
-  if (project == "lihc") {
-    data <- data |> 
-      dplyr::mutate(path_stage =  if_else(path_stage %in% c("stage iii", "stage iv"), "stage iv", path_stage),
-                    pathologic_tnm_t = if_else(pathologic_tnm_t %in% c("t3, t4"), "t3/4", pathologic_tnm_t))
-  }
-  
+
+  data <- dplyr::select(data, -c(sample:cases.case_id)) # Remove ID columns
+
   # Remove columns that are all NA
   na_sums <- apply(data, 2, \(x) is.na(x) |> sum())
   just_nas <- which(na_sums == nrow(data))
@@ -426,9 +397,56 @@ univariate <- function(dds, project, show_glance = F) {
   # Remove TNM 'x'
   no_x <- no_nas |>
     mutate(across(contains("tnm"), ~ str_replace(.x, ".*x$", NA_character_))) |> 
-    mutate(across(matches("^grade$"), ~ str_replace(.x, ".*x$", NA_character_)))
+    mutate(across(contains("tnm_n"), ~ if_else(.x != "n0", "n+", .x))) |> 
+    mutate(across(contains("tnm_n"), ~ fct_relevel(.x, "n0"))) |> 
+    mutate(across(matches("^grade$"), ~ str_replace(.x, ".*x$", NA_character_))) |> 
+    mutate(across(matches("^grade$"), ~ fct_relevel(.x, "low")))
   
-  map(colnames(no_x), ~ get_hr_simple(data = no_x, stratum = .x, show_glance = show_glance)) |> 
+  data <- no_x |> 
+    dplyr::select(-ends_with("bin"), -matches("days_to_collection|anatomic"))
+  
+  # Project specific cases
+  if (project == "blca") {
+    data <- data |> 
+      dplyr::filter(path_stage != "stage i") |> 
+      dplyr::filter(!(pathologic_tnm_t %in% c("t0", "t1")))
+  }
+  
+  if (project == "hnsc") {
+    data <- data |> 
+      dplyr::mutate(path_stage = if_else(path_stage %in% c("stage 0", "stage i", "stage ii"), "stage 0/i/ii", path_stage),
+                    clin_stage = if_else(clin_stage %in% c("stage 0", "stage i", "stage ii"), "stage 0/i/ii", clin_stage),
+                    pathologic_tnm_t = if_else(pathologic_tnm_t %in% c("t0", "t1", "t2"), "t0/1/2", pathologic_tnm_t), 
+                    clinical_tnm_t = if_else(clinical_tnm_t %in% c("t1", "t2"), "t1/2", clinical_tnm_t))
+  }
+  
+  if (project == "kirc") {
+    data <- data |> 
+      mutate(pathologic_tnm_t = if_else(pathologic_tnm_t %in% c("t3", "t4"), "t3/4", pathologic_tnm_t),
+                    grade = if_else(grade %in% c("g1", "g2"), "g1/2", as.character(grade))) |> 
+      dplyr::select(-clinical_tnm_m)
+  }
+  
+  if (project == "lihc") {
+    data <- data |> 
+      mutate(path_stage = if_else(path_stage %in% c("stage iii", "stage iv"), "stage iii/iv", path_stage),
+                    path_stage = fct_relevel(path_stage, "stage iii/iv", after = Inf),
+                    pathologic_tnm_t = if_else(pathologic_tnm_t %in% c("t3", "t4"), "t3/4", pathologic_tnm_t),
+                    pathologic_tnm_t = fct_relevel(pathologic_tnm_t, "t3/4", after = Inf))
+  } 
+  
+  if (project == "skcm") {
+    data <- data |> 
+      dplyr::filter(!(path_stage %in% c("stage 0", "i/ii no"))) |> # rm'ing stage 0  removes the one AA individual
+      dplyr::filter(!(pathologic_tnm_t %in% c("t0", "tis"))) |> 
+      mutate(path_stage = fct_drop(path_stage),
+             race = fct_drop(race))
+  }
+
+  no_surv <- data |> 
+    dplyr::select(-follow_up_time, -death)
+  
+  map(colnames(no_surv), ~ get_hr_simple(data = data, stratum = .x, show_glance = show_glance)) |> 
     enframe() |> 
     unnest(cols = c(value))
 }

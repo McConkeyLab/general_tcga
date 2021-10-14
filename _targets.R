@@ -44,16 +44,12 @@ mapped <- tar_map(
   tar_target(b_hrs, get_hr(dds_w_bin_scores, "b_bin + age + pathologic_tnm_t", project)),
   tar_target(t_hrs, get_hr(dds_w_bin_scores, "cd8_bin + age + pathologic_tnm_t", project)),
   tar_target(imm_hrs, get_hr(dds_w_bin_scores, "imm_bin + age + pathologic_tnm_t", project)),
-  tar_target(b_survdiff, get_survdiff(dds_w_bin_scores, "b_bin + sex + age + pathologic_tnm_t", project)),
-  tar_target(t_survdiff, get_survdiff(dds_w_bin_scores, "cd8_bin + sex + age + pathologic_tnm_t", project)),
-  tar_target(imm_survdiff, get_survdiff(dds_w_bin_scores, "imm_bin + sex + age + pathologic_tnm_t", project)),
-  tar_target(hi_b_survdiff, get_survdiff(dds_w_bin_scores, "sex + age + pathologic_tnm_t", project, b_bin, "Hi")),
-  tar_target(lo_b_survdiff, get_survdiff(dds_w_bin_scores, "sex + age + pathologic_tnm_t", project, b_bin, "Lo")),
-  tar_target(sex_survdiff, get_survdiff(dds_w_bin_scores, "sex + age + pathologic_tnm_t", project)),
-  tar_target(univariate_tidy, univariate(dds_w_bin_scores, project)),
-  tar_target(univariate_glance, univariate(dds_w_bin_scores, project, T)),
-  tar_target(univariate_both, full_join(univariate_tidy, univariate_glance, by = "name")),
-  
+  tar_target(surv_tidy, tidy_for_survival(dds_w_bin_scores, project)),
+  tar_target(univariate_tidy, univariate(surv_tidy)),
+  tar_target(univariate_glance, univariate(surv_tidy, TRUE)),
+  tar_target(univariate_both, full_join(univariate_tidy, univariate_glance, by = c("name", "stratum"))),
+  tar_target(multivariable_names, get_multivariable_names(univariate_glance)),
+  tar_target(multivariable, run_all_multi_combos(surv_tidy, multivariable_names, project)),
   # Plots ---------------------------------------------------------------- 
   tar_target(clin_table, make_clin_table(dds_w_bin_scores, project)),
   tar_target(
@@ -155,8 +151,6 @@ list(
   tar_target(gene_ids, get_hgnc(combined_dds)),
   tar_combine(combined_hrs, mapped[[13]], mapped[[14]], mapped[[15]], command = rbind(!!!.x)),
   tar_target(hr_plot, make_hr_plot(combined_hrs), format = "file"),
-  tar_combine(combined_survdiffs, mapped[[16]], mapped[[17]], mapped[[18]], command = rbind(!!!.x)),
-  tar_combine(combined_survdiffs_hi_b, mapped[[19]], command = rbind(!!!.x)),
-  tar_combine(combined_survdiffs_lo_b, mapped[[20]], command = rbind(!!!.x)),
-  tar_combine(combined_survdiffs_sex, mapped[[21]], command = rbind(!!!.x))
+  tar_combine(combined_multis, mapped[[21]], command = rbind(!!!.x)),
+  tar_target(hr_plot_multi, make_hr_plot_multi(combined_multis), format = "file")
 )

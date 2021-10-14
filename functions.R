@@ -94,11 +94,12 @@ tidy_clin <- function(clin_path) {
                   clinical_tnm_t = matches("^patient.stage_event.tnm_categories.clinical_categories.clinical_t$"),
                   clinical_tnm_n = matches("^patient.stage_event.tnm_categories.clinical_categories.clinical_n$"),
                   clinical_tnm_m = matches("^patient.stage_event.tnm_categories.clinical_categories.clinical_m$"),
-                  anatomic_subdivision = matches("^patient.anatomic_neoplasm_subdivision$"),
-                  grade = matches("^patient.neoplasm_histologic_grade$")) |> 
+                  grade = matches("^patient.neoplasm_histologic_grade$"),
+                  pack_years = matches("^patient.number_pack_years_smoked$")) |>
+    mutate(across(contains("pack_years"), as.numeric)) |> 
     mutate(across(contains("tnm"), ~str_remove(., "(?<=[:digit:])[:alpha:]$"))) |> 
     mutate(across(matches("path_stage|clin_stage"), ~str_remove(., "[^0iv]$")))
-    
+  
   
   # Create Survival Time Column
   get_latest <- function(data) {
@@ -184,7 +185,7 @@ download_tcga_data <- function(manifest) {
 }
 
 man_to_dds <- function(clin, manifest) {
-
+  
   
   # Some samples may be in the manifest but not in the clinical data.
   
@@ -331,11 +332,11 @@ bin_gsva <- function(dds) {
     colData() |> 
     as_tibble() |> 
     mutate(b_bin = if_else(b_cell > 0, "Hi", "Lo"),
-           b_bin = factor(b_bin, levels = c("Hi", "Lo")),
+           b_bin = factor(b_bin, levels = c("Lo", "Hi")),
            cd8_bin = if_else(cd8 > 0, "Hi", "Lo"),
-           cd8_bin = factor(cd8_bin, levels = c("Hi", "Lo")),
+           cd8_bin = factor(cd8_bin, levels = c("Lo", "Hi")),
            imm_bin = if_else(exp_immune > 0, "Hi", "Lo"),
-           imm_bin = factor(imm_bin, levels = c("Hi", "Lo"))) |>
+           imm_bin = factor(imm_bin, levels = c("Lo", "Hi"))) |>
     DataFrame()
   
   colData(dds) <- col_data
@@ -347,23 +348,22 @@ bin_gsva <- function(dds) {
 # Survival ---------------------------------------------------------------------
 
 get_hr <- function(dds, stratum, project, keep_only_first = TRUE) { 
-    cd <- colData(dds) |> as_tibble() |> 
-      mutate(across(.cols = c(b_bin, cd8_bin, imm_bin), ~fct_rev(.x)))
-    cd_m <- dplyr::filter(cd, sex == "M")
-    cd_f <- dplyr::filter(cd, sex == "F")
-    form <- as.formula(paste("Surv(follow_up_time, death) ~ ", stratum))
-    fit_cox <- function(df, group) {
-      fit <- coxph(form, data = df) |> 
-        tidy(conf.int = TRUE, exponentiate = TRUE) |> 
-        bind_cols(group = group)
-      
-      if (keep_only_first) {
-        fit <- fit[1,]
-      }
-      fit
+  cd <- colData(dds) |> as_tibble()
+  cd_m <- dplyr::filter(cd, sex == "M")
+  cd_f <- dplyr::filter(cd, sex == "F")
+  form <- as.formula(paste("Surv(follow_up_time, death) ~ ", stratum))
+  fit_cox <- function(df, group) {
+    fit <- coxph(form, data = df) |> 
+      tidy(conf.int = TRUE, exponentiate = TRUE) |> 
+      bind_cols(group = group)
+    
+    if (keep_only_first) {
+      fit <- fit[1,]
     }
-    bind_rows(fit_cox(cd, "all"), fit_cox(cd_m, "male"), fit_cox(cd_f, "female")) |> 
-      mutate(project = project)
+    fit
+  }
+  bind_rows(fit_cox(cd, "all"), fit_cox(cd_m, "male"), fit_cox(cd_f, "female")) |> 
+    mutate(project = project)
 }
 
 get_hr_simple <- function(data, stratum, show_glance) {
@@ -375,16 +375,18 @@ get_hr_simple <- function(data, stratum, show_glance) {
   } else {
     res <- tidy(res, exponentiate = TRUE, conf.int = TRUE)
   }
+  res$stratum <- stratum
   res
-    
+  
 }
 
-univariate <- function(dds, project, show_glance = F) {
-
-  data <- dds |> colData() |> as_tibble()
-
-  data <- dplyr::select(data, -c(sample:cases.case_id)) # Remove ID columns
-
+tidy_for_survival <- function(dds, project) {
+  
+  data <- dds |> 
+    colData() |> 
+    as_tibble() |> 
+    dplyr::select(-c(sample:cases.case_id)) # ID columns, not used for survival
+  
   # Remove columns that are all NA
   na_sums <- apply(data, 2, \(x) is.na(x) |> sum())
   just_nas <- which(na_sums == nrow(data))
@@ -403,7 +405,7 @@ univariate <- function(dds, project, show_glance = F) {
     mutate(across(matches("^grade$"), ~ fct_relevel(.x, "low")))
   
   data <- no_x |> 
-    dplyr::select(-ends_with("bin"), -matches("days_to_collection|anatomic"))
+    dplyr::select(-matches("days_to_collection|anatomic"))
   
   # Project specific cases
   if (project == "blca") {
@@ -423,16 +425,16 @@ univariate <- function(dds, project, show_glance = F) {
   if (project == "kirc") {
     data <- data |> 
       mutate(pathologic_tnm_t = if_else(pathologic_tnm_t %in% c("t3", "t4"), "t3/4", pathologic_tnm_t),
-                    grade = if_else(grade %in% c("g1", "g2"), "g1/2", as.character(grade))) |> 
+             grade = if_else(grade %in% c("g1", "g2"), "g1/2", as.character(grade))) |> 
       dplyr::select(-clinical_tnm_m)
   }
   
   if (project == "lihc") {
     data <- data |> 
       mutate(path_stage = if_else(path_stage %in% c("stage iii", "stage iv"), "stage iii/iv", path_stage),
-                    path_stage = fct_relevel(path_stage, "stage iii/iv", after = Inf),
-                    pathologic_tnm_t = if_else(pathologic_tnm_t %in% c("t3", "t4"), "t3/4", pathologic_tnm_t),
-                    pathologic_tnm_t = fct_relevel(pathologic_tnm_t, "t3/4", after = Inf))
+             path_stage = fct_relevel(path_stage, "stage iii/iv", after = Inf),
+             pathologic_tnm_t = if_else(pathologic_tnm_t %in% c("t3", "t4"), "t3/4", pathologic_tnm_t),
+             pathologic_tnm_t = fct_relevel(pathologic_tnm_t, "t3/4", after = Inf))
   } 
   
   if (project == "skcm") {
@@ -442,7 +444,13 @@ univariate <- function(dds, project, show_glance = F) {
       mutate(path_stage = fct_drop(path_stage),
              race = fct_drop(race))
   }
+  
+  data
+  
+}
 
+univariate <- function(data, show_glance = F) {
+  
   no_surv <- data |> 
     dplyr::select(-follow_up_time, -death)
   
@@ -451,37 +459,52 @@ univariate <- function(dds, project, show_glance = F) {
     unnest(cols = c(value))
 }
 
-
-
-get_survdiff <- function(dds, stratum, project, sub_stratum = NULL, sub_stratum_level = NULL) {
-  cd <- colData(dds) |> as_tibble() |> 
-    mutate(across(.cols = c(b_bin, cd8_bin, imm_bin), ~fct_rev(.x)))
-  if (!missing(sub_stratum) & !missing(sub_stratum_level)) {
-    cd <- dplyr::filter(cd, {{ sub_stratum }} == sub_stratum_level)
-  }
-
-  form <- as.formula(paste("Surv(follow_up_time, death) ~ ", stratum))
-  survdiff_tidy <- function(df) {
-    survdiff(form, data = df) |> 
-      glance()
-  }
-  
-  if (stratum != "sex") {
-    cd_m <- dplyr::filter(cd, sex == "M")
-    cd_f <- dplyr::filter(cd, sex == "F")
-    bind_rows(survdiff_tidy(cd), survdiff_tidy(cd_m), survdiff_tidy(cd_f)) |> 
-      mutate(group = c("all", "male", "female"),
-             project = project,
-             stratum = stratum)
-  } else {
-    survdiff_tidy(cd) |> 
-      mutate(group = "all",
-             project = project,
-             stratum = "sex")
-  }
+get_multivariable_names <- function(univariate_glance) {
+  keep <- univariate_glance$p.value.wald <= 0.05
+  sig_uni <- univariate_glance$stratum[keep]
+  multi_names <- union(sig_uni, c("age", "path_stage"))
+  # Since we're going with path_stage, remove the pathologic_tnm
+  multi_names <- multi_names[!str_detect(multi_names, "pathologic_tnm")]
+  # These factors will be added in individually later and must be removed so
+  # they can be added in a controlled fashion
+  multi_names <- multi_names[!(multi_names %in% c("sex", "cd8", "b_cell", "exp_immune", "cd8_bin", "b_bin", "imm_bin"))]
+  multi_names
 }
 
+run_multivariable <- function(data, multivariable_names, sex_arg = "all", signature = "none", show_glance = FALSE) {
+  
+  if (sex_arg != "all") {
+    data <- dplyr::filter(data, sex == sex_arg)
+  }
+  
+  if (signature != "none") {
+    multivariable_names <- c(multivariable_names, signature)
+  }
+  
+  res <- 
+    paste("Surv(follow_up_time, death) ~ ", paste(multivariable_names, collapse = " + ")) |> 
+    as.formula() |> 
+    coxph(data)
+  if (show_glance) {
+    res <- glance(res)
+  } else {
+    res <- tidy(res, exponentiate = TRUE, conf.int = TRUE)
+  }
+  res
+}
 
+run_all_multi_combos <- function(data, names, project) {
+  
+  eg <- expand_grid(sex_arg = c("all", "M", "F"), signature = c("none", "cd8_bin", "b_bin", "imm_bin"))
+  
+  tibble(data = list(data), names = list(names), eg) |> 
+    rowwise() |> 
+    mutate(res = list(run_multivariable(data, names, sex_arg, signature))) |> 
+    dplyr::select(-data) |> 
+    mutate(project = project) |> 
+    unnest(res)
+  
+}
 
 # Plotting Helpers -------------------------------------------------------------
 
@@ -542,7 +565,7 @@ make_clin_table <- function(dds, project) {
 }
 
 dense_ind <- function(data, x, file_name, project, color = NULL, facet = NULL, width = 3, height = 3) {
-
+  
   proj_fig_dir <- tar_read_raw(paste0("fig_dir_", project))
   file_name <- paste0(proj_fig_dir, file_name)
   
@@ -560,7 +583,7 @@ dense_ind <- function(data, x, file_name, project, color = NULL, facet = NULL, w
   agg_png(file_name, width = width, height = height,  units = "in", res = 288)
   print(this_plot)
   dev.off()
-
+  
   file_name
 }
 
@@ -668,4 +691,31 @@ make_hr_plot <- function(data) {
   print(hr_plot)
   dev.off()
   "./00_common/hr-plot.png"
+}
+
+
+
+make_hr_plot_multi <- function(data) {
+  hr_plot <- data |> 
+    dplyr::filter(str_detect(term, "cd8_bin|b_bin|imm_bin")) |> 
+    mutate(project = toupper(project),
+           sex = factor(sex_arg, levels = c("F", "M", "all")),
+           term = case_when(term == "b_binHi" ~ "B-cell Signature",
+                            term == "cd8_binHi" ~ "CD8+ T-cell Signature",
+                            term == "imm_binHi" ~ "Pan-Immune Signature")) |> 
+    ggplot(aes(x = estimate, y = sex, color = sex)) +
+    geom_vline(xintercept = 1, alpha = 0.5) + 
+    scale_color_manual(values = c("#F8B7CD", "#0671B7", "black")) + 
+    geom_linerange(aes(xmin = conf.low, xmax = conf.high)) + 
+    geom_point() + 
+    facet_grid(project~term) + 
+    theme_tufte(10) + 
+    labs(x = "Hazard Ratio") + 
+    theme(legend.position = "none",
+          axis.title.y = element_blank())
+  
+  agg_png("./00_common/hr-plot_multi.png", width = 6, height = 8, units = "in", res = 288)
+  print(hr_plot)
+  dev.off()
+  "./00_common/hr-plot_multi.png"
 }

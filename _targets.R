@@ -41,15 +41,11 @@ mapped <- tar_map(
   tar_target(gsva_scores, run_gsva(norm, gene_signatures)),
   tar_target(dds_w_scores, merge_gsva(norm, gsva_scores)),
   tar_target(dds_w_bin_scores, bin_gsva(dds_w_scores)),
-  tar_target(b_hrs, get_hr(dds_w_bin_scores, "b_bin + age + pathologic_tnm_t", project)),
-  tar_target(t_hrs, get_hr(dds_w_bin_scores, "cd8_bin + age + pathologic_tnm_t", project)),
-  tar_target(imm_hrs, get_hr(dds_w_bin_scores, "imm_bin + age + pathologic_tnm_t", project)),
   tar_target(surv_tidy, tidy_for_survival(dds_w_bin_scores, project)),
-  tar_target(univariate_tidy, univariate(surv_tidy)),
-  tar_target(univariate_glance, univariate(surv_tidy, TRUE)),
-  tar_target(univariate_both, full_join(univariate_tidy, univariate_glance, by = c("name", "stratum"))),
-  tar_target(multivariable_names, get_multivariable_names(univariate_glance)),
+  tar_target(univariate, run_all_uni_combos(surv_tidy, project)),
+  tar_target(multivariable_names, get_multivariable_names(univariate)),
   tar_target(multivariable, run_all_multi_combos(surv_tidy, multivariable_names, project)),
+
   # Plots ---------------------------------------------------------------- 
   tar_target(clin_table, make_clin_table(dds_w_bin_scores, project)),
   tar_target(
@@ -149,8 +145,8 @@ list(
   mapped, 
   tar_combine(combined_dds, mapped[[7]], command = list(!!!.x)),
   tar_target(gene_ids, get_hgnc(combined_dds)),
-  tar_combine(combined_hrs, mapped[[13]], mapped[[14]], mapped[[15]], command = rbind(!!!.x)),
-  tar_target(hr_plot, make_hr_plot(combined_hrs), format = "file"),
-  tar_combine(combined_multis, mapped[[21]], command = rbind(!!!.x)),
+  tar_combine(combined_unis, mapped[[14]], command = rbind(!!!.x)),
+  tar_combine(combined_multis, mapped[[16]], command = rbind(!!!.x)),
+  tar_target(hr_plot_unis, make_hr_plot(combined_unis), format = "file"),
   tar_target(hr_plot_multi, make_hr_plot_multi(combined_multis), format = "file")
 )

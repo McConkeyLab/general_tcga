@@ -65,13 +65,20 @@ get_clin <- function(tcga_data_dir, tcga_proj) {
 
 # Wrangle and Tidy -------------------------------------------------------------
 
+get_latest <- function(data) {
+  rowwise(data) |>
+    mutate(across(everything(), as.numeric)) |>
+    mutate(collapsed = if_else(!is.infinite(max(c_across(), na.rm = T)),
+                               max(c_across(), na.rm = T),
+                               NA_real_
+    )) |>
+    dplyr::select(collapsed)
+}
+
 tidy_clin <- function(clin_path) {
   
-  clinical <-
-    read_tsv(clin_path,
-             col_names = F,
-             show_col_types = FALSE) |>
-    t() 
+  clinical <- read_tsv(clin_path, col_names = F, show_col_types = FALSE) |>
+    t()
   
   colnames(clinical) <- clinical[1, ]
   
@@ -85,7 +92,6 @@ tidy_clin <- function(clin_path) {
                   sex = patient.gender,
                   age = patient.age_at_initial_pathologic_diagnosis,
                   race = patient.race_list.race,
-                  days_to_collection = matches("^patient.samples.sample.days_to_collection$"),
                   path_stage = matches("^patient.stage_event.pathologic_stage$"),
                   clin_stage = matches("^patient.stage_event.clinical_stage$"),
                   pathologic_tnm_t = matches("^patient.stage_event.tnm_categories.pathologic_categories.pathologic_t$"),
@@ -95,23 +101,17 @@ tidy_clin <- function(clin_path) {
                   clinical_tnm_n = matches("^patient.stage_event.tnm_categories.clinical_categories.clinical_n$"),
                   clinical_tnm_m = matches("^patient.stage_event.tnm_categories.clinical_categories.clinical_m$"),
                   grade = matches("^patient.neoplasm_histologic_grade$"),
-                  pack_years = matches("^patient.number_pack_years_smoked$")) |>
+                  pack_years = matches("^patient.number_pack_years_smoked$"),
+                  hpv_status = matches("^patient.hpv_test_results.hpv_test_result.hpv_status$"),
+                  h_pylori_status = matches("^patient.h_pylori_infection$")) |>
     mutate(across(contains("pack_years"), as.numeric)) |> 
-    mutate(across(contains("tnm"), ~str_remove(., "(?<=[:digit:])[:alpha:]$"))) |> 
-    mutate(across(matches("path_stage|clin_stage"), ~str_remove(., "[^0iv]$")))
-  
+    mutate(across(contains("hpv"), ~ fct_relevel(., "negative"))) |> 
+    mutate(across(contains("tnm"), ~ str_remove(., "(?<=[:digit:])[:alpha:]$"))) |> 
+    mutate(across(matches("path_stage|clin_stage"), ~str_remove(., "[^0ivs]$"))) |> 
+    mutate(across(contains("tnm_n"), ~ str_replace(., "[1234]$", "\\+"))) |> 
+    mutate(across(contains("tnm_n"), ~ fct_relevel(., "n+")))
   
   # Create Survival Time Column
-  get_latest <- function(data) {
-    rowwise(data) |>
-      mutate(across(everything(), as.numeric)) |>
-      mutate(collapsed = if_else(!is.infinite(max(c_across(), na.rm = T)),
-                                 max(c_across(), na.rm = T),
-                                 NA_real_
-      )) |>
-      dplyr::select(collapsed)
-  }
-  
   death <- clinical |>
     dplyr::select(contains("days_to_death")) |>
     get_latest() |> 
@@ -131,17 +131,17 @@ tidy_clin <- function(clin_path) {
     ) |>
     dplyr::select(-contains("days_to_death"),
                   -contains("days_to_last_followup"),
-                  -patient.vital_status) |> 
+                  -patient.vital_status,
+                  -death_days,
+                  -followUp_days) |> 
     dplyr::filter((follow_up_time >= 0) & !is.na(follow_up_time)) |>
     dplyr::filter((follow_up_time > 0) | (death == 0)) |> 
     # For reasoning as to the above filtering rule, see
     # https://www.graphpad.com/support/faq/events-deaths-at-time-zero-in-survival-analysis/
     dplyr::filter(!is.na(sex)) |> 
     mutate(sex = factor(sex, levels = c("male", "female"), labels = c("M", "F")),
-           age = as.numeric(age),
-           days_to_collection = as.numeric(days_to_collection)) |> 
-    mutate(across(matches("grade|race"), fct_rev)) |> 
-    dplyr::select(-death_days, -followUp_days)
+           age = as.numeric(age)) |> 
+    mutate(across(matches("grade|race"), fct_rev))
 }
 
 make_man <- function(rm_cases_file, tcga_project) {
@@ -347,39 +347,6 @@ bin_gsva <- function(dds) {
 
 # Survival ---------------------------------------------------------------------
 
-get_hr <- function(dds, stratum, project, keep_only_first = TRUE) { 
-  cd <- colData(dds) |> as_tibble()
-  cd_m <- dplyr::filter(cd, sex == "M")
-  cd_f <- dplyr::filter(cd, sex == "F")
-  form <- as.formula(paste("Surv(follow_up_time, death) ~ ", stratum))
-  fit_cox <- function(df, group) {
-    fit <- coxph(form, data = df) |> 
-      tidy(conf.int = TRUE, exponentiate = TRUE) |> 
-      bind_cols(group = group)
-    
-    if (keep_only_first) {
-      fit <- fit[1,]
-    }
-    fit
-  }
-  bind_rows(fit_cox(cd, "all"), fit_cox(cd_m, "male"), fit_cox(cd_f, "female")) |> 
-    mutate(project = project)
-}
-
-get_hr_simple <- function(data, stratum, show_glance) {
-  stratum <- setdiff(stratum, c("follow_up_time", "death"))
-  res <- as.formula(paste("Surv(follow_up_time, death) ~ ", stratum)) |> 
-    coxph(data)
-  if (show_glance) {
-    res <- glance(res)
-  } else {
-    res <- tidy(res, exponentiate = TRUE, conf.int = TRUE)
-  }
-  res$stratum <- stratum
-  res
-  
-}
-
 tidy_for_survival <- function(dds, project) {
   
   data <- dds |> 
@@ -449,25 +416,54 @@ tidy_for_survival <- function(dds, project) {
   
 }
 
-univariate <- function(data, show_glance = F) {
+run_univariate <- function(data, stratum, sex_arg = "all", show_glance = FALSE) {
   
-  no_surv <- data |> 
-    dplyr::select(-follow_up_time, -death)
+  if (sex_arg != "all") {
+    data <- dplyr::filter(data, sex == sex_arg)
+  }
   
-  map(colnames(no_surv), ~ get_hr_simple(data = data, stratum = .x, show_glance = show_glance)) |> 
-    enframe() |> 
-    unnest(cols = c(value))
+  # Checks for factors with one level
+  if (data[[stratum]] |> as.factor() |> droplevels() |> levels() |> length() <= 1) {
+    return(tibble(term = NA, estimate = NA, p.value = NA, conf.low = NA, conf.high = NA))
+  }
+  
+  form <- as.formula(paste("Surv(follow_up_time, death) ~ ", stratum))
+  
+  fit <- coxph(form, data = data)
+  
+  
+  fit_tidy <- tidy(fit, conf.int = TRUE, exponentiate = TRUE)
+  fit_glance <- glance(fit)
+  
+  bind_cols(fit_tidy, fit_glance) |> 
+    dplyr::select(term, estimate, p.value, conf.low, conf.high, p.value.wald)
+  
 }
 
-get_multivariable_names <- function(univariate_glance) {
-  keep <- univariate_glance$p.value.wald <= 0.05
-  sig_uni <- univariate_glance$stratum[keep]
-  multi_names <- union(sig_uni, c("age", "path_stage"))
+run_all_uni_combos <- function(data, project) {
+  strata <- colnames(data)
+  strata <- strata[!strata %in% c("follow_up_time", "death")]
+  
+  eg <- expand_grid(sex_arg = c("all", "M", "F"), stratum = strata)
+  
+  tibble(data = list(data), eg) |> 
+    mutate(project = project,
+           res = pmap(list(data, stratum, sex_arg), run_univariate)) |> 
+    dplyr::select(-data) |> 
+    unnest(res)
+}
+
+get_multivariable_names <- function(univariate) {
+  univariate <- univariate |> 
+    dplyr::filter(sex_arg == "all",
+                  p.value.wald <= 0.05)
+  multi_names <- union(univariate$stratum, c("age", "path_stage"))
   # Since we're going with path_stage, remove the pathologic_tnm
   multi_names <- multi_names[!str_detect(multi_names, "pathologic_tnm")]
   # These factors will be added in individually later and must be removed so
   # they can be added in a controlled fashion
-  multi_names <- multi_names[!(multi_names %in% c("sex", "cd8", "b_cell", "exp_immune", "cd8_bin", "b_bin", "imm_bin"))]
+  multi_names <- multi_names[!(multi_names %in% c("sex", "cd8", "b_cell", "exp_immune", 
+                                                  "cd8_bin", "b_bin", "imm_bin"))]
   multi_names
 }
 
@@ -481,16 +477,16 @@ run_multivariable <- function(data, multivariable_names, sex_arg = "all", signat
     multivariable_names <- c(multivariable_names, signature)
   }
   
-  res <- 
+  fit <- 
     paste("Surv(follow_up_time, death) ~ ", paste(multivariable_names, collapse = " + ")) |> 
     as.formula() |> 
     coxph(data)
-  if (show_glance) {
-    res <- glance(res)
-  } else {
-    res <- tidy(res, exponentiate = TRUE, conf.int = TRUE)
-  }
-  res
+  
+  fit_tidy <- tidy(fit, conf.int = TRUE, exponentiate = TRUE)
+  fit_glance <- glance(fit)
+  
+  bind_cols(fit_tidy, fit_glance) |> 
+    dplyr::select(term, estimate, p.value, conf.low, conf.high, p.value.wald)
 }
 
 run_all_multi_combos <- function(data, names, project) {
@@ -545,18 +541,26 @@ make_clin_table <- function(dds, project) {
   proj_fig_dir <- tar_read_raw(paste0("fig_dir_", project))
   file_name <- paste0(proj_fig_dir, "clin-table.png")
   
-  temp <- dds |> 
+  clin <- dds |> 
     colData() |>
     as_tibble() |> 
     dplyr::select(-(sample:cases.case_id))
   
-  colnames(temp) <- colnames(temp) |> 
+  how_many_nas <- apply(clin, 2, \(x) x |> is.na() |> sum())
+  all_nas <- how_many_nas == nrow(clin)
+  
+  clin <- clin[,!all_nas]
+  
+  clin <- dplyr::select(clin, -cd8, -b_cell, -exp_immune)
+  
+  colnames(clin) <- colnames(clin) |> 
     str_replace_all("_", " ") |> 
     str_to_title() |> 
     str_replace_all("Cd8", "CD8+") |> 
     str_replace_all("Bin", "Signature") |> 
     str_replace_all("Tnm", "TNM")
-  temp |> 
+  
+  clin |> 
     tbl_summary(by = Sex) |> 
     add_overall(last = TRUE) |> 
     as_gt() |> 
@@ -668,15 +672,13 @@ surv_ind <- function(data, strata, file_name, project,
 
 make_hr_plot <- function(data) {
   hr_plot <- data |> 
+    dplyr::filter(str_detect(term, "cd8_bin|b_bin|imm_bin")) |> 
     mutate(project = toupper(project),
-           group = case_when(group == "all" ~ "All",
-                             group == "female" ~ "F",
-                             group == "male" ~ "M"),
-           group = factor(group, levels = c("F", "M", "All")),
+           sex_arg = factor(sex_arg, levels = c("F", "M", "all")),
            term = case_when(term == "b_binHi" ~ "B-cell Signature",
                             term == "cd8_binHi" ~ "CD8+ T-cell Signature",
                             term == "imm_binHi" ~ "Pan-Immune Signature")) |> 
-    ggplot(aes(x = estimate, y = group, color = group)) +
+    ggplot(aes(x = estimate, y = sex_arg, color = sex_arg)) +
     geom_vline(xintercept = 1, alpha = 0.5) + 
     scale_color_manual(values = c("#F8B7CD", "#0671B7", "black")) + 
     geom_linerange(aes(xmin = conf.low, xmax = conf.high)) + 
@@ -686,14 +688,11 @@ make_hr_plot <- function(data) {
     labs(x = "Hazard Ratio") + 
     theme(legend.position = "none",
           axis.title.y = element_blank())
-  
   agg_png("./00_common/hr-plot.png", width = 6, height = 8, units = "in", res = 288)
   print(hr_plot)
   dev.off()
   "./00_common/hr-plot.png"
 }
-
-
 
 make_hr_plot_multi <- function(data) {
   hr_plot <- data |> 

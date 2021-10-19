@@ -10,7 +10,7 @@ tar_option_set(
   packages = c(
     "tidyverse", "broom", "glue", "rvest", "GenomicDataCommons", "TCGAutils", "biomaRt",
     "SummarizedExperiment", "DESeq2", "GSVA", "future", "future.callr", "gt",
-    "gtsummary", "survival", "survminer", "webshot", "ragg"
+    "gtsummary", "survival", "survminer", "webshot", "ragg", "car"
   )
 )
 
@@ -52,22 +52,18 @@ mapped <- tar_map(
   
   # Plots ---------------------------------------------------------------- 
   tar_target(clin_table, make_clin_table(dds_w_bin_scores, project)),
-  tar_target(
-    density_plots,
-    dens_ind_all(data = dds_w_bin_scores, 
-                 xs = c("b_cell", "exp_immune", "cd8"), 
-                 project, 
-                 color = "sex"),
-    format = "file"
-  ),
-  tar_target(
-    survival_plots,
-    surv_ind_all(data = dds_w_bin_scores,
-                 strata = c("b_bin", "cd8_bin", "imm_bin"),
-                 project = project,
-                 facet = c(NA, "sex")),
-    format = "file"
-  )
+  tar_target(density_plots,
+             dens_ind_all(data = dds_w_bin_scores, 
+                          xs = c("b_cell", "exp_immune", "cd8"), 
+                          project, 
+                          color = "sex"),
+             format = "file"),
+  tar_target(survival_plots,
+             surv_ind_all(data = dds_w_bin_scores,
+                          strata = c("b_bin", "cd8_bin", "imm_bin"),
+                          project = project,
+                          facet = c(NA, "sex")),
+             format = "file")
 )
 
 list(

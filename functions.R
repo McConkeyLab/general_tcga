@@ -467,7 +467,7 @@ get_multivariable_names <- function(univariate) {
   multi_names
 }
 
-run_multivariable <- function(data, multivariable_names, sex_arg = "all", signature = "none", show_glance = FALSE) {
+run_multivariable <- function(data, multivariable_names, sex_arg = "all", signature = "none") {
   
   if (sex_arg != "all") {
     data <- dplyr::filter(data, sex == sex_arg)
@@ -477,16 +477,17 @@ run_multivariable <- function(data, multivariable_names, sex_arg = "all", signat
     multivariable_names <- c(multivariable_names, signature)
   }
   
-  fit <- 
+  multi_model <- function(df) {
     paste("Surv(follow_up_time, death) ~ ", paste(multivariable_names, collapse = " + ")) |> 
-    as.formula() |> 
-    coxph(data)
+      as.formula() |> 
+      coxph(data = df)
+  }
   
-  fit_tidy <- tidy(fit, conf.int = TRUE, exponentiate = TRUE)
-  fit_glance <- glance(fit)
-  
-  bind_cols(fit_tidy, fit_glance) |> 
-    dplyr::select(term, estimate, p.value, conf.low, conf.high, p.value.wald)
+  tibble(data = list(data)) |>
+    mutate(fit = map(data, multi_model),
+           tidy_coxph = map(fit, tidy, conf.int = TRUE, exponentiate = TRUE),
+           tidy_anova = map(fit, \(x) x |> Anova(type = "III") |> tidy())) |> 
+    dplyr::select(-data)
 }
 
 run_all_multi_combos <- function(data, names, project) {
@@ -498,7 +499,9 @@ run_all_multi_combos <- function(data, names, project) {
     mutate(res = list(run_multivariable(data, names, sex_arg, signature))) |> 
     dplyr::select(-data) |> 
     mutate(project = project) |> 
-    unnest(res)
+    unnest(res) |> 
+    unnest(tidy_coxph, names_sep = "_") |> 
+    unnest(tidy_anova, names_sep = "_")
   
 }
 
@@ -725,16 +728,16 @@ make_hr_plot <- function(data) {
 
 make_hr_plot_multi <- function(data) {
   hr_plot <- data |> 
-    dplyr::filter(str_detect(term, "cd8_bin|b_bin|imm_bin")) |> 
+    dplyr::filter(str_detect(tidy_coxph_term, "cd8_bin|b_bin|imm_bin")) |> 
     mutate(project = toupper(project),
            sex = factor(sex_arg, levels = c("F", "M", "all")),
-           term = case_when(term == "b_binHi" ~ "B-cell Signature",
-                            term == "cd8_binHi" ~ "CD8+ T-cell Signature",
-                            term == "imm_binHi" ~ "Pan-Immune Signature")) |> 
-    ggplot(aes(x = estimate, y = sex, color = sex)) +
+           term = case_when(tidy_coxph_term == "b_binHi" ~ "B-cell Signature",
+                            tidy_coxph_term == "cd8_binHi" ~ "CD8+ T-cell Signature",
+                            tidy_coxph_term == "imm_binHi" ~ "Pan-Immune Signature")) |> 
+    ggplot(aes(x = tidy_coxph_estimate, y = sex, color = sex)) +
     geom_vline(xintercept = 1, alpha = 0.5) + 
     scale_color_manual(values = c("#F8B7CD", "#0671B7", "black")) + 
-    geom_linerange(aes(xmin = conf.low, xmax = conf.high)) + 
+    geom_linerange(aes(xmin = tidy_coxph_conf.low, xmax = tidy_coxph_conf.high)) + 
     geom_point() + 
     facet_grid(project~term) + 
     theme_tufte(10) + 

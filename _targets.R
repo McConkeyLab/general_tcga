@@ -143,10 +143,10 @@ list(
   tar_target(gene_signatures, tidy_signatures()),
   tar_target(rm_cases, make_rm(common_dir), format = "file"),
   mapped, 
-  tar_combine(combined_dds, mapped[[7]], command = list(!!!.x)),
+  tar_combine(combined_dds, mapped[["dds"]], command = list(!!!.x)),
   tar_target(gene_ids, get_hgnc(combined_dds)),
-  tar_combine(combined_unis, mapped[[14]], command = rbind(!!!.x)),
-  tar_combine(combined_multis, mapped[[16]], command = rbind(!!!.x)),
+  tar_combine(combined_unis, mapped[["univariate"]], command = rbind(!!!.x)),
+  tar_combine(combined_multis, mapped[["multivariable"]], command = rbind(!!!.x)),
   tar_target(hr_plot_unis, make_hr_plot(combined_unis), format = "file"),
   tar_target(hr_plot_multi, make_hr_plot_multi(combined_multis), format = "file")
 )

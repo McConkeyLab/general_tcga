@@ -24,114 +24,48 @@ values = tibble(
 mapped <- tar_map(
   values = values,
   
-  # File structure and data acquisition ----------------------------------
+  # File structure and data acquisition ----------------------------------------
   tar_target(dir, make_dir(paste0(data_dir, project, "/"))),
   tar_target(fig_dir, make_dir(paste0(dir, "figures/"))),
   tar_target(clin_dirty, get_clin(dir, project), format = "file"),
   
-  # Wrangling and tidying ------------------------------------------------
+  # Wrangling and tidying ------------------------------------------------------
   tar_target(clin, tidy_clin(clin_dirty)),
   tar_target(man, make_man(rm_cases, project)),
   tar_target(man_w_paths, download_tcga_data(man)),
   tar_target(dds, man_to_dds(clin, man_w_paths)),
   
-  # Analysis -------------------------------------------------------------
+  # Normalization --------------------------------------------------------------
   tar_target(norm, normalize(dds, gene_ids)),
   tar_target(norm_file, write_norm(norm, project)),
+  
+  # GSVA -----------------------------------------------------------------------
   tar_target(gsva_scores, run_gsva(norm, gene_signatures)),
   tar_target(dds_w_scores, merge_gsva(norm, gsva_scores)),
   tar_target(dds_w_bin_scores, bin_gsva(dds_w_scores)),
+  
+  # Survival analyses ----------------------------------------------------------
   tar_target(surv_tidy, tidy_for_survival(dds_w_bin_scores, project)),
   tar_target(univariate, run_all_uni_combos(surv_tidy, project)),
   tar_target(multivariable_names, get_multivariable_names(univariate)),
   tar_target(multivariable, run_all_multi_combos(surv_tidy, multivariable_names, project)),
-
+  
   # Plots ---------------------------------------------------------------- 
   tar_target(clin_table, make_clin_table(dds_w_bin_scores, project)),
   tar_target(
-    dens_b, 
-    dense_ind(dds_w_bin_scores, 
-              b_cell, 
-              file_name = "density_b.png", 
-              project = project,
-              color = sex), 
+    density_plots,
+    dens_ind_all(data = dds_w_bin_scores, 
+                 xs = c("b_cell", "exp_immune", "cd8"), 
+                 project, 
+                 color = "sex"),
     format = "file"
   ),
   tar_target(
-    surv_b_sex, 
-    surv_ind(dds_w_bin_scores, 
-             strata = "b_bin", 
-             file_name =  "surv_b_sex.png", 
-             facet = "sex", 
-             project = project), 
-    format = "file"
-  ),
-  tar_target(
-    surv_b, 
-    surv_ind(dds_w_bin_scores, 
-             strata = "b_bin", 
-             file_name = "surv_b.png", 
-             project = project), 
-    format = "file"
-  ),
-  tar_target(
-    dens_cd8, 
-    dense_ind(dds_w_bin_scores, 
-              cd8, 
-              file_name = "density_cd8.png", 
-              project = project,
-              color = sex), 
-    format = "file"
-  ),
-  tar_target(
-    surv_cd8_sex, 
-    surv_ind(dds_w_bin_scores, 
-             strata = "cd8_bin", 
-             file_name =  "surv_cd8_sex.png", 
-             facet = "sex", 
-             project = project), 
-    format = "file"
-  ),
-  tar_target(
-    surv_cd8, 
-    surv_ind(dds_w_bin_scores, 
-             strata = "cd8_bin", 
-             file_name = "surv_cd8.png", 
-             project = project), 
-    format = "file"
-  ),
-  tar_target(
-    dens_imm, 
-    dense_ind(dds_w_bin_scores, 
-              exp_immune, 
-              file_name = "density_pan-imm.png", 
-              project = project,
-              color = sex), 
-    format = "file"
-  ),
-  tar_target(
-    surv_imm_sex, 
-    surv_ind(dds_w_bin_scores, 
-             strata = "imm_bin", 
-             file_name =  "surv_pan-imm_sex.png", 
-             facet = "sex", 
-             project = project), 
-    format = "file"
-  ),
-  tar_target(
-    surv_imm, 
-    surv_ind(dds_w_bin_scores, 
-             strata = "imm_bin", 
-             file_name = "surv_pan-imm.png", 
-             project = project), 
-    format = "file"
-  ),
-  tar_target(
-    surv_sex,
-    surv_ind(dds_w_bin_scores,
-             strata = "sex",
-             file_name = "surv_sex.png",
-             project = project),
+    survival_plots,
+    surv_ind_all(data = dds_w_bin_scores,
+                 strata = c("b_bin", "cd8_bin", "imm_bin"),
+                 project = project,
+                 facet = c(NA, "sex")),
     format = "file"
   )
 )

@@ -568,7 +568,8 @@ make_clin_table <- function(dds, project) {
   file_name
 }
 
-dense_ind <- function(data, x, file_name, project, color = NULL, facet = NULL, width = 3, height = 3) {
+dense_ind <- function(data, x, file_name, project, color = NULL, 
+                      facet = NULL, width = 3, height = 3) {
   
   proj_fig_dir <- tar_read_raw(paste0("fig_dir_", project))
   file_name <- paste0(proj_fig_dir, file_name)
@@ -578,7 +579,7 @@ dense_ind <- function(data, x, file_name, project, color = NULL, facet = NULL, w
   this_plot <- data |> 
     colData() |> 
     as_tibble() |> 
-    ggplot(aes(x = {{ x }}, color = {{ color }})) + 
+    ggplot(aes(x = .data[[x]], color = .data[[color]])) + 
     geom_density() + 
     facet_grid(rows = vars(!!enq_fac)) + 
     coord_cartesian(xlim = c(-1, 1)) + 
@@ -591,12 +592,23 @@ dense_ind <- function(data, x, file_name, project, color = NULL, facet = NULL, w
   file_name
 }
 
+dens_ind_all <- function(data, xs, project, color) {
+
+  expand_grid(data = list(data), xs) |> 
+    mutate(file_name = paste0("density_", xs, ".png"),
+           project = project,
+           color = color,
+           file_path = pmap(list(data = data, x = xs, file_name = file_name, project = project, color = color), dense_ind)) |> 
+    pull(file_path) |> 
+    unlist()
+}
+
 surv_ind <- function(data, strata, file_name, project, 
-                     legend_labs = NULL, 
-                     color = NULL, 
-                     linetype = NULL, 
-                     facet = NULL, 
-                     legend_title = NULL,
+                     legend_labs = NA, 
+                     color = NA, 
+                     linetype = NA, 
+                     facet = NA, 
+                     legend_title = NA,
                      width = 4,
                      height = 4) {
   
@@ -607,7 +619,7 @@ surv_ind <- function(data, strata, file_name, project,
     colData() |> 
     as_tibble()
   
-  if (is.null(legend_labs)){
+  if (is.na(legend_labs)){
     legend_labs <- 
       setdiff(strata, facet)
     if (length(legend_labs) == 1) {
@@ -631,7 +643,7 @@ surv_ind <- function(data, strata, file_name, project,
     }
   }
   
-  if (is.null(legend_title) & is.null(color)){
+  if (is.na(legend_title) & is.na(color)){
     legend_title <- strata |>
       str_replace("_", " ") |> 
       str_to_title() |> 
@@ -648,7 +660,7 @@ surv_ind <- function(data, strata, file_name, project,
                legend.labs = legend_labs, legend.title = legend_title,
                break.time.by = 365.25, xscale = "d_m", size = 0.5, 
                pval.size = 6, font.x = 15, font.y = 15, font.tickslab = 7)
-  if (is.null(facet) || data[[facet]] |> unique() |> length() == 1) {
+  if (is.na(facet) || data[[facet]] |> unique() |> length() == 1) {
     ggsurv <- do.call(ggsurvplot, c(args))
     ggsurv <- ggsurv$plot
   } else {
@@ -666,6 +678,23 @@ surv_ind <- function(data, strata, file_name, project,
   print(ggsurv)
   dev.off()
   file_name
+}
+
+surv_ind_all <- function(data, strata, project, facet) {
+  expand_grid(data = list(data), strata, facet) |> 
+    mutate(
+      
+      file_name = if_else(is.na(facet),
+                          paste("survival", strata, sep = "_") |> paste0(".png"),
+                          paste("survival", strata, facet, sep = "_") |> paste0(".png")),
+      project = project,
+      file_path = pmap(list(data = data, 
+                            strata = strata, 
+                            file_name = file_name,
+                            facet = facet, 
+                            project = project), surv_ind)) |> 
+    pull(file_path) |> 
+    unlist()
 }
 
 ## Aggregate Project Plots -----------------------------------------------------

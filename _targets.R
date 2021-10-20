@@ -47,15 +47,19 @@ mapped <- tar_map(
   # Survival analyses ----------------------------------------------------------
   tar_target(surv_tidy, tidy_for_survival(dds_w_bin_scores, project)),
   tar_target(univariate, run_all_uni_combos(surv_tidy, project)),
-  tar_target(multivariable_names, get_multivariable_names(univariate)),
-  tar_target(multivariable, run_all_multi_combos(surv_tidy, multivariable_names, project)),
+  #tar_target(multivariable_names, get_multivariable_names(univariate)),
+  #tar_target(multivariable, run_all_multi_combos(surv_tidy, multivariable_names, project)),
   
-  # Tables 
+  # Tables ---------------------------------------------------------------------
   tar_target(clin_table, make_clin_table(dds_w_bin_scores, project)),
 
   
   
-  # Plots ---------------------------------------------------------------- 
+  # Plots ----------------------------------------------------------------------
+  
+  tar_target(univariate_plots,
+             make_univariate_plot(univariate, project)),
+  
   tar_target(density_plots,
              dens_ind_all(data = dds_w_bin_scores, 
                           xs = c("b_cell", "exp_immune", "cd8"), 
@@ -80,7 +84,7 @@ list(
   tar_combine(combined_dds, mapped[["dds"]], command = list(!!!.x)),
   tar_target(gene_ids, get_hgnc(combined_dds)),
   tar_combine(combined_unis, mapped[["univariate"]], command = rbind(!!!.x)),
-  tar_combine(combined_multis, mapped[["multivariable"]], command = rbind(!!!.x)),
-  tar_target(hr_plot_unis, make_hr_plot(combined_unis), format = "file"),
-  tar_target(hr_plot_multi, make_hr_plot_multi(combined_multis), format = "file")
+  #tar_combine(combined_multis, mapped[["multivariable"]], command = rbind(!!!.x)),
+  tar_target(hr_plot_unis, make_hr_plot(combined_unis), format = "file")
+  #tar_target(hr_plot_multi, make_hr_plot_multi(combined_multis), format = "file")
 )

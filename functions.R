@@ -416,12 +416,14 @@ tidy_for_survival <- function(dds, project) {
   
   if (project == "luad") {
     data <- data |> 
-      mutate(race = if_else(race %in% c("asian", "american indian or alaska native"), "asian, american indian or alaska native", as.character(race)))#if not done, causes issues with Anova in univariate
-  }
+      mutate(race = if_else(race %in% c("asian", "american indian or alaska native"), "asian, american indian or alaska native", as.character(race))) |> #if not done, causes issues with Anova in univariate
+      arrange(desc(race)) |> 
+      mutate(race = fct_inorder(race))
+      }
   
   if (project == "skcm") {
     data <- data |> 
-      dplyr::filter(!(path_stage %in% c("stage 0", "i/ii no"))) |> # rm'ing stage 0  removes the one AA individual
+      dplyr::filter(!(path_stage %in% c("stage 0", "i/ii nos"))) |> # rm'ing stage 0  removes the one AA individual
       dplyr::filter(!(pathologic_tnm_t %in% c("t0", "tis"))) |> 
       mutate(path_stage = fct_drop(path_stage),
              race = fct_drop(race))
@@ -429,7 +431,12 @@ tidy_for_survival <- function(dds, project) {
   
   if (project == "stad") {
     data <- data |> 
-      mutate(race = if_else(race %in% c("asian", "native hawaiian or other pacific islander"), "asian, native hawaiian or other pacific islander", as.character(race)))#if not done, causes issues with Anova in univariate
+      mutate(race = if_else(race %in% c("asian", "native hawaiian or other pacific islander"), 
+                            "asian, native hawaiian or other pacific islander", as.character(race))) |> #if not done, causes issues with Anova in univariate
+      arrange(desc(race)) |> 
+      mutate(race = fct_rev(race)) |> 
+      
+      dplyr::select(-hpv_status) # Too few to do any surv on
   }
   
   data
@@ -600,11 +607,11 @@ make_clin_table <- function(dds, project) {
   file_name
 }
 
-make_univariate_table <- function(univarible_fit, project) {
-  # Separate based on sex_arg
-  # temp
-  a <- tar_read(univariate_blca)
-  b <- a |> 
+make_univariate_plot <- function(univariate_data, project) {
+  proj_fig_dir <- tar_read_raw(paste0("fig_dir_", project))
+  file_name <- paste0(proj_fig_dir, "univariate-plot.png")
+
+  b <- univariate_data |> 
     rowwise() |>
     mutate(level = if_else(fit_tidy_cox_term != stratum, 
                            str_remove(fit_tidy_cox_term, paste0("^", stratum)),
@@ -614,53 +621,70 @@ make_univariate_table <- function(univarible_fit, project) {
              str_replace("^F$", "Females") |> 
              str_replace("^all$", "All"),
            est_label = paste(round(fit_tidy_cox_conf.low, 2), round(fit_tidy_cox_estimate, 2), round(fit_tidy_cox_conf.high, 2))) |> 
-    relocate(level, .before = fit_tidy_cox_term)
+    relocate(level, .before = fit_tidy_cox_term) |> 
+    mutate(plot_conf_low = if_else(fit_tidy_cox_conf.low < 0.03, 0.03, fit_tidy_cox_conf.low),
+           plot_conf_high = if_else(fit_tidy_cox_conf.high > 25, 25, fit_tidy_cox_conf.high))
 
-  b |>
-    filter(sex_arg == "all") |> 
+  
+  # all
+  all <- b |>
+    dplyr::filter(sex_arg == "all") |> 
+    dplyr::filter(fit_tidy_anova_term != "NULL") |> 
     group_by(stratum) |> 
     mutate(mean_est = mean(fit_tidy_cox_estimate)) |> 
     arrange(fit_tidy_cox_estimate) |> 
     ungroup() |> 
-    mutate(stratum = fct_inorder(stratum),
-           y = if_else(is.na(base_level),
-                       level,
-                       paste0(level, " vs ", base_level))) |> 
+    mutate(
+      anova_stars = case_when(fit_tidy_anova_p.value < 0.001 ~ "***",
+                              fit_tidy_anova_p.value < 0.01 ~ "**",
+                              fit_tidy_anova_p.value < 0.05 ~ "*",
+                              TRUE ~ ""),
+      indiv_stars = case_when(fit_tidy_cox_p.value < 0.001 ~ "***",
+                              fit_tidy_cox_p.value < 0.01 ~ "**",
+                              fit_tidy_cox_p.value < 0.05 ~ "*",
+                              TRUE ~ ""),
+      y = if_else(is.na(base_level),
+                  level,
+                  paste0(level, " vs ", base_level)),
+      y = y |> 
+        str_replace_all("_", " ") |> 
+        str_to_title() |> 
+        str_replace_all("(\\bI[iv]*\\b)", str_to_upper) |> 
+        str_replace("(\\bVs\\b)", str_to_lower),
+      y = paste(indiv_stars, y),
+      stratum = paste(stratum, anova_stars),
+      stratum = stratum |> 
+        str_replace_all("_", " ") |> 
+        str_to_title() |> 
+        str_replace_all("Cd8", "CD8+") |> 
+        str_replace_all("\\bB\\b", "B-cell") |> 
+        str_replace_all("\\bBin\\b", "Signature") |> 
+        str_replace_all("Tnm", "TNM") |> 
+        fct_inorder())
+  height <- (all$y |> length())/3
+  all <- all |>  
     ggplot(aes(x = fit_tidy_cox_estimate, y = y)) + 
-    geom_vline(xintercept = 1) + 
-    geom_linerange(aes(xmin = fit_tidy_cox_conf.low, xmax = fit_tidy_cox_conf.high)) +
+    geom_vline(xintercept = 1, color = "#FF0000", size = 0.2) + 
+    geom_linerange(aes(xmin = plot_conf_low, xmax = plot_conf_high)) +
     geom_point() + 
-    facet_grid(rows = "stratum", shrink = T, scales = "free") +
+    facet_grid(rows = "stratum", shrink = T, scales = "free", space = "free") +
     bladdr::theme_tufte(10) +
-    scale_x_log10(breaks = c(0.1, 0.25, 0.5, 1, 2, 4, 10)) +
-    theme(panel.grid.major.x = element_line(color = "#CCCCCC"))
+    scale_x_log10(breaks = c(0.05, 0.1, 0.25, 0.5, 2, 4, 10, 20), labels = c(0.05, 0.1, 0.25, 0.5, 2, 4, 10, 20)) +
+    theme(panel.grid.major.x = element_line(color = "#CCCCCC"),
+          strip.placement = "inside",
+          strip.text.y = element_text(angle = 0, hjust = 0, size = 10, face = "bold"),
+          axis.text.y = element_text(size = 9),
+          axis.title = element_blank(),
+          axis.ticks = element_blank()) + 
+    coord_cartesian(xlim = c(0.05, 20))
   
+
+  agg_png(file_name, width = 9, height = height,  units = "in", res = 288)
+  print(all)
+  dev.off()
   
-  title <- b$project |> 
-    unique() |> 
-    toupper() |> 
-    paste("Univariate Hazard Ratios")
+  file_name
   
-  # Filter here
-  
-  # Dataset specific calculations
-  
-  all <- b |> 
-    dplyr::filter(sex_arg == "all") |> 
-    dplyr::select(-project)
-  
-  subtitle <- unique(all$subtitle)
-  
-  
-  all |> 
-    dplyr::select(-subtitle, -sex_arg) |>
-    tbl_summary()
-    # group_by(stratum) |> 
-    # gt() |> 
-    # tab_header(title = title,
-    #            subtitle = subtitle) |> 
-    # fmt_scientific(columns = c("p.value", "p.value.wald")) |> 
-    
 }
 
 dense_ind <- function(data, x, file_name, project, color = NULL, 

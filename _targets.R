@@ -50,8 +50,12 @@ mapped <- tar_map(
   tar_target(multivariable_names, get_multivariable_names(univariate)),
   tar_target(multivariable, run_all_multi_combos(surv_tidy, multivariable_names, project)),
   
-  # Plots ---------------------------------------------------------------- 
+  # Tables 
   tar_target(clin_table, make_clin_table(dds_w_bin_scores, project)),
+
+  
+  
+  # Plots ---------------------------------------------------------------- 
   tar_target(density_plots,
              dens_ind_all(data = dds_w_bin_scores, 
                           xs = c("b_cell", "exp_immune", "cd8"), 

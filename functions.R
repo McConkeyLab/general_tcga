@@ -372,13 +372,20 @@ tidy_for_survival <- function(dds, project) {
     mutate(across(matches("^grade$"), ~ fct_relevel(.x, "low")))
   
   data <- no_x |> 
-    dplyr::select(-matches("days_to_collection|anatomic"))
+    dplyr::select(-matches("days_to_collection|anatomic")) |> 
+    dplyr::select(-b_cell, -cd8, -exp_immune) # Just using discretized 
   
   # Project specific cases
   if (project == "blca") {
     data <- data |> 
       dplyr::filter(path_stage != "stage i") |> 
-      dplyr::filter(!(pathologic_tnm_t %in% c("t0", "t1")))
+      dplyr::filter(!(pathologic_tnm_t %in% c("t0", "t1"))) |> 
+      mutate(grade = fct_rev(grade))
+  }
+  
+  if (project == "coad") {
+    data <- data |> 
+      mutate(race = if_else(race %in% c("asian", "american indian or alaska native"), "asian, american indian or alaska native", as.character(race)))#if not done, causes issues with Anova in univariate
   }
   
   if (project == "hnsc") {
@@ -386,7 +393,9 @@ tidy_for_survival <- function(dds, project) {
       dplyr::mutate(path_stage = if_else(path_stage %in% c("stage 0", "stage i", "stage ii"), "stage 0/i/ii", path_stage),
                     clin_stage = if_else(clin_stage %in% c("stage 0", "stage i", "stage ii"), "stage 0/i/ii", clin_stage),
                     pathologic_tnm_t = if_else(pathologic_tnm_t %in% c("t0", "t1", "t2"), "t0/1/2", pathologic_tnm_t), 
-                    clinical_tnm_t = if_else(clinical_tnm_t %in% c("t1", "t2"), "t1/2", clinical_tnm_t))
+                    clinical_tnm_t = if_else(clinical_tnm_t %in% c("t1", "t2"), "t1/2", clinical_tnm_t),
+                    race = if_else(race %in% c("asian", "american indian or alaska native"), "asian, indian am. or alaska native", as.character(race)),
+                    grade = if_else(grade %in% c("g3", "g4"), "g3/4", as.character(grade)))
   }
   
   if (project == "kirc") {
@@ -401,8 +410,14 @@ tidy_for_survival <- function(dds, project) {
       mutate(path_stage = if_else(path_stage %in% c("stage iii", "stage iv"), "stage iii/iv", path_stage),
              path_stage = fct_relevel(path_stage, "stage iii/iv", after = Inf),
              pathologic_tnm_t = if_else(pathologic_tnm_t %in% c("t3", "t4"), "t3/4", pathologic_tnm_t),
-             pathologic_tnm_t = fct_relevel(pathologic_tnm_t, "t3/4", after = Inf))
+             pathologic_tnm_t = fct_relevel(pathologic_tnm_t, "t3/4", after = Inf),
+             race = if_else(race %in% c("asian", "american indian or alaska native"), "asian, american indian or alaska native", as.character(race))) #if not done, causes issues with Anova in univariate
   } 
+  
+  if (project == "luad") {
+    data <- data |> 
+      mutate(race = if_else(race %in% c("asian", "american indian or alaska native"), "asian, american indian or alaska native", as.character(race)))#if not done, causes issues with Anova in univariate
+  }
   
   if (project == "skcm") {
     data <- data |> 
@@ -412,32 +427,39 @@ tidy_for_survival <- function(dds, project) {
              race = fct_drop(race))
   }
   
+  if (project == "stad") {
+    data <- data |> 
+      mutate(race = if_else(race %in% c("asian", "native hawaiian or other pacific islander"), "asian, native hawaiian or other pacific islander", as.character(race)))#if not done, causes issues with Anova in univariate
+  }
+  
   data
   
 }
 
-run_univariate <- function(data, stratum, sex_arg = "all", show_glance = FALSE) {
+run_univariate <- function(data, stratum, sex_arg = "all") {
   
   if (sex_arg != "all") {
     data <- dplyr::filter(data, sex == sex_arg)
   }
   
-  # Checks for factors with one level
+  #Checks for factors with one level
   if (data[[stratum]] |> as.factor() |> droplevels() |> levels() |> length() <= 1) {
-    return(tibble(term = NA, estimate = NA, p.value = NA, conf.low = NA, conf.high = NA))
+    return()
   }
   
-  form <- as.formula(paste("Surv(follow_up_time, death) ~ ", stratum))
+  cox_model <- function(df) {
+    as.formula(paste("Surv(follow_up_time, death) ~ ", stratum)) |> 
+      coxph(data = df)
+  }
   
-  fit <- coxph(form, data = data)
+
   
-  
-  fit_tidy <- tidy(fit, conf.int = TRUE, exponentiate = TRUE)
-  fit_glance <- glance(fit)
-  
-  bind_cols(fit_tidy, fit_glance) |> 
-    dplyr::select(term, estimate, p.value, conf.low, conf.high, p.value.wald)
-  
+  tibble(data = list(data)) |> 
+    mutate(fit_cox = map(data, cox_model),
+           fit_tidy_cox = map(fit_cox, tidy, conf.int = TRUE, exponentiate = TRUE),
+           fit_tidy_anova = map(fit_cox, car::Anova, type = "III"),
+           fit_tidy_anova = map(fit_tidy_anova, tidy)) |> 
+    dplyr::select(-data)
 }
 
 run_all_uni_combos <- function(data, project) {
@@ -445,12 +467,20 @@ run_all_uni_combos <- function(data, project) {
   strata <- strata[!strata %in% c("follow_up_time", "death")]
   
   eg <- expand_grid(sex_arg = c("all", "M", "F"), stratum = strata)
-  
+
   tibble(data = list(data), eg) |> 
     mutate(project = project,
            res = pmap(list(data, stratum, sex_arg), run_univariate)) |> 
     dplyr::select(-data) |> 
-    unnest(res)
+    unnest(res) |> 
+    unnest(cols = fit_tidy_cox, names_sep = "_") |> 
+    unnest(cols = fit_tidy_anova, names_sep = "_") |> 
+    mutate(base_level = map(fit_cox, function(x) {
+      x <- x$xlevels |> unlist() |> unname()
+      x <- x[1]
+      x <- if_else(is.null(x), NA_character_, x)
+    })) |> 
+    unnest(cols = base_level)
 }
 
 get_multivariable_names <- function(univariate) {
@@ -540,7 +570,6 @@ ggsurvplot_facet2 <- function(pval.size = 5, ...) {
 ## Individual Project Plots -----------------------------------------------------
 
 make_clin_table <- function(dds, project) {
-  
   proj_fig_dir <- tar_read_raw(paste0("fig_dir_", project))
   file_name <- paste0(proj_fig_dir, "clin-table.png")
   
@@ -569,6 +598,69 @@ make_clin_table <- function(dds, project) {
     as_gt() |> 
     gtsave(file_name)
   file_name
+}
+
+make_univariate_table <- function(univarible_fit, project) {
+  # Separate based on sex_arg
+  # temp
+  a <- tar_read(univariate_blca)
+  b <- a |> 
+    rowwise() |>
+    mutate(level = if_else(fit_tidy_cox_term != stratum, 
+                           str_remove(fit_tidy_cox_term, paste0("^", stratum)),
+                           fit_tidy_cox_term),
+           subtitle = sex_arg |> 
+             str_replace("^M$", "Males") |> 
+             str_replace("^F$", "Females") |> 
+             str_replace("^all$", "All"),
+           est_label = paste(round(fit_tidy_cox_conf.low, 2), round(fit_tidy_cox_estimate, 2), round(fit_tidy_cox_conf.high, 2))) |> 
+    relocate(level, .before = fit_tidy_cox_term)
+
+  b |>
+    filter(sex_arg == "all") |> 
+    group_by(stratum) |> 
+    mutate(mean_est = mean(fit_tidy_cox_estimate)) |> 
+    arrange(fit_tidy_cox_estimate) |> 
+    ungroup() |> 
+    mutate(stratum = fct_inorder(stratum),
+           y = if_else(is.na(base_level),
+                       level,
+                       paste0(level, " vs ", base_level))) |> 
+    ggplot(aes(x = fit_tidy_cox_estimate, y = y)) + 
+    geom_vline(xintercept = 1) + 
+    geom_linerange(aes(xmin = fit_tidy_cox_conf.low, xmax = fit_tidy_cox_conf.high)) +
+    geom_point() + 
+    facet_grid(rows = "stratum", shrink = T, scales = "free") +
+    bladdr::theme_tufte(10) +
+    scale_x_log10(breaks = c(0.1, 0.25, 0.5, 1, 2, 4, 10)) +
+    theme(panel.grid.major.x = element_line(color = "#CCCCCC"))
+  
+  
+  title <- b$project |> 
+    unique() |> 
+    toupper() |> 
+    paste("Univariate Hazard Ratios")
+  
+  # Filter here
+  
+  # Dataset specific calculations
+  
+  all <- b |> 
+    dplyr::filter(sex_arg == "all") |> 
+    dplyr::select(-project)
+  
+  subtitle <- unique(all$subtitle)
+  
+  
+  all |> 
+    dplyr::select(-subtitle, -sex_arg) |>
+    tbl_summary()
+    # group_by(stratum) |> 
+    # gt() |> 
+    # tab_header(title = title,
+    #            subtitle = subtitle) |> 
+    # fmt_scientific(columns = c("p.value", "p.value.wald")) |> 
+    
 }
 
 dense_ind <- function(data, x, file_name, project, color = NULL, 

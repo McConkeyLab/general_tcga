@@ -10,7 +10,7 @@ tar_option_set(
   packages = c(
     "tidyverse", "broom", "glue", "rvest", "GenomicDataCommons", "TCGAutils", "biomaRt",
     "SummarizedExperiment", "DESeq2", "GSVA", "future", "future.callr", "gt",
-    "gtsummary", "survival", "survminer", "webshot", "ragg", "car"
+    "gtsummary", "survival", "survminer", "webshot", "ragg", "car", "tidymodels", "censored"
   )
 )
 
@@ -47,16 +47,14 @@ mapped <- tar_map(
   # Survival analyses ----------------------------------------------------------
   tar_target(surv_tidy, tidy_for_survival(dds_w_bin_scores, project)),
   tar_target(univariate, run_all_uni_combos(surv_tidy, project)),
-  #tar_target(multivariable_names, get_multivariable_names(univariate)),
-  #tar_target(multivariable, run_all_multi_combos(surv_tidy, multivariable_names, project)),
+  tar_target(multivariable_names, get_multivariable_names(univariate, project)),
+  tar_target(multivariable, run_all_multi_combos(surv_tidy, multivariable_names, project)),
   
   # Tables ---------------------------------------------------------------------
-  tar_target(clin_table, make_clin_table(dds_w_bin_scores, project)),
+  tar_target(clin_table, make_clin_table(dds_w_bin_scores, project), format = "file"),
 
   
-  
   # Plots ----------------------------------------------------------------------
-  
   tar_target(univariate_plots,
              make_univariate_plot(univariate, project)),
   
@@ -84,7 +82,7 @@ list(
   tar_combine(combined_dds, mapped[["dds"]], command = list(!!!.x)),
   tar_target(gene_ids, get_hgnc(combined_dds)),
   tar_combine(combined_unis, mapped[["univariate"]], command = rbind(!!!.x)),
-  #tar_combine(combined_multis, mapped[["multivariable"]], command = rbind(!!!.x)),
-  tar_target(hr_plot_unis, make_hr_plot(combined_unis), format = "file")
+  tar_combine(combined_multis, mapped[["multivariable"]], command = rbind(!!!.x))
+  #tar_target(hr_plot_unis, make_hr_plot(combined_unis), format = "file")
   #tar_target(hr_plot_multi, make_hr_plot_multi(combined_multis), format = "file")
 )

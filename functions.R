@@ -375,6 +375,13 @@ tidy_for_survival <- function(dds, project) {
     dplyr::select(-matches("days_to_collection|anatomic")) |> 
     dplyr::select(-b_cell, -cd8, -exp_immune) # Just using discretized 
   
+  if (project %in% c("coad", "hnsc", "lihc", "luad")) {
+    data <- data |> 
+      mutate(race = if_else(race %in% c("asian", "american indian or alaska native"), 
+                            "asian, american indian or alaska native", 
+                            as.character(race))) #if not done, causes issues with Anova in univariate
+  }
+  
   # Project specific cases
   if (project == "blca") {
     data <- data |> 
@@ -385,17 +392,20 @@ tidy_for_survival <- function(dds, project) {
   
   if (project == "coad") {
     data <- data |> 
-      mutate(race = if_else(race %in% c("asian", "american indian or alaska native"), "asian, american indian or alaska native", as.character(race)))#if not done, causes issues with Anova in univariate
+      mutate(pathologic_tnm_t = if_else(pathologic_tnm_t %in% c("t1", "t2"), "t1/2", pathologic_tnm_t)) |> 
+      dplyr::filter(pathologic_tnm_t != "tis") |> 
+      mutate(pathologic_tnm_t = fct_relevel(pathologic_tnm_t, "t1/2"))
   }
   
   if (project == "hnsc") {
     data <- data |> 
-      dplyr::mutate(path_stage = if_else(path_stage %in% c("stage 0", "stage i", "stage ii"), "stage 0/i/ii", path_stage),
-                    clin_stage = if_else(clin_stage %in% c("stage 0", "stage i", "stage ii"), "stage 0/i/ii", clin_stage),
-                    pathologic_tnm_t = if_else(pathologic_tnm_t %in% c("t0", "t1", "t2"), "t0/1/2", pathologic_tnm_t), 
-                    clinical_tnm_t = if_else(clinical_tnm_t %in% c("t1", "t2"), "t1/2", clinical_tnm_t),
-                    race = if_else(race %in% c("asian", "american indian or alaska native"), "asian, indian am. or alaska native", as.character(race)),
-                    grade = if_else(grade %in% c("g3", "g4"), "g3/4", as.character(grade)))
+      mutate(path_stage = if_else(path_stage %in% c("stage 0", "stage i", "stage ii"), "stage 0/i/ii", path_stage),
+             clin_stage = if_else(clin_stage %in% c("stage 0", "stage i", "stage ii"), "stage 0/i/ii", clin_stage),
+             pathologic_tnm_t = if_else(pathologic_tnm_t %in% c("t0", "t1", "t2"), "t0/1/2", pathologic_tnm_t), 
+             clinical_tnm_t = if_else(clinical_tnm_t %in% c("t1", "t2"), "t1/2", clinical_tnm_t),
+             grade = if_else(grade %in% c("g3", "g4"), "g3/4", as.character(grade)),
+             hpv_status = if_else(hpv_status %in% c("negative", "positive"), as.character(hpv_status), NA_character_),
+             hpv_status = fct_relevel(hpv_status, "negative"))
   }
   
   if (project == "kirc") {
@@ -410,34 +420,30 @@ tidy_for_survival <- function(dds, project) {
       mutate(path_stage = if_else(path_stage %in% c("stage iii", "stage iv"), "stage iii/iv", path_stage),
              path_stage = fct_relevel(path_stage, "stage iii/iv", after = Inf),
              pathologic_tnm_t = if_else(pathologic_tnm_t %in% c("t3", "t4"), "t3/4", pathologic_tnm_t),
-             pathologic_tnm_t = fct_relevel(pathologic_tnm_t, "t3/4", after = Inf),
-             race = if_else(race %in% c("asian", "american indian or alaska native"), "asian, american indian or alaska native", as.character(race))) #if not done, causes issues with Anova in univariate
+             pathologic_tnm_t = fct_relevel(pathologic_tnm_t, "t3/4", after = Inf)) #if not done, causes issues with Anova in univariate
   } 
   
-  if (project == "luad") {
+  if (project == "lusc") {
     data <- data |> 
-      mutate(race = if_else(race %in% c("asian", "american indian or alaska native"), "asian, american indian or alaska native", as.character(race))) |> #if not done, causes issues with Anova in univariate
-      arrange(desc(race)) |> 
-      mutate(race = fct_inorder(race))
-      }
-  
+      mutate(path_stage = if_else(path_stage %in% c("stage iii", "stage iv"), "stage iii/iv", path_stage))
+  }
+
   if (project == "skcm") {
     data <- data |> 
       dplyr::filter(!(path_stage %in% c("stage 0", "i/ii nos"))) |> # rm'ing stage 0  removes the one AA individual
       dplyr::filter(!(pathologic_tnm_t %in% c("t0", "tis"))) |> 
-      mutate(path_stage = fct_drop(path_stage),
-             race = fct_drop(race))
+      mutate(path_stage = fct_drop(path_stage))
   }
   
   if (project == "stad") {
     data <- data |> 
       mutate(race = if_else(race %in% c("asian", "native hawaiian or other pacific islander"), 
                             "asian, native hawaiian or other pacific islander", as.character(race))) |> #if not done, causes issues with Anova in univariate
-      arrange(desc(race)) |> 
-      mutate(race = fct_rev(race)) |> 
-      
       dplyr::select(-hpv_status) # Too few to do any surv on
   }
+  
+  data <- data |> 
+    mutate(race = race |> fct_drop() |> fct_relevel("white"))
   
   data
   
@@ -490,17 +496,22 @@ run_all_uni_combos <- function(data, project) {
     unnest(cols = base_level)
 }
 
-get_multivariable_names <- function(univariate) {
+get_multivariable_names <- function(univariate, project) {
   univariate <- univariate |> 
     dplyr::filter(sex_arg == "all",
-                  p.value.wald <= 0.05)
+                  fit_tidy_anova_p.value <= 0.05)
   multi_names <- union(univariate$stratum, c("age", "path_stage"))
   # Since we're going with path_stage, remove the pathologic_tnm
-  multi_names <- multi_names[!str_detect(multi_names, "pathologic_tnm")]
+  multi_names <- multi_names[!str_detect(multi_names, "_tnm")]
   # These factors will be added in individually later and must be removed so
   # they can be added in a controlled fashion
   multi_names <- multi_names[!(multi_names %in% c("sex", "cd8", "b_cell", "exp_immune", 
                                                   "cd8_bin", "b_bin", "imm_bin"))]
+  
+  if (project == "lusc") {
+    multi_names <- c(multi_names, "pack_years")
+  }
+  
   multi_names
 }
 
@@ -513,17 +524,27 @@ run_multivariable <- function(data, multivariable_names, sex_arg = "all", signat
   if (signature != "none") {
     multivariable_names <- c(multivariable_names, signature)
   }
-  
-  multi_model <- function(df) {
-    paste("Surv(follow_up_time, death) ~ ", paste(multivariable_names, collapse = " + ")) |> 
-      as.formula() |> 
-      coxph(data = df)
+
+  naming_function <- function(var, lvl, ordinal = FALSE, sep = "|") {
+    paste0(var, "|", lvl)
   }
   
-  tibble(data = list(data)) |>
-    mutate(fit = map(data, multi_model),
+  rec <- recipe(data) |>   
+    step_select(all_of(multivariable_names), follow_up_time, death) |> 
+    step_dummy(all_nominal(), naming = naming_function) 
+  
+  prepared_data <- rec |> 
+    prep() |> 
+    bake(new_data = NULL)
+  
+  fit_mod <- function(df) {
+    coxph(Surv(follow_up_time, death) ~ ., data = df)
+  }
+  
+  tibble(data = list(prepared_data)) |> 
+    mutate(fit = map(data, fit_mod),
            tidy_coxph = map(fit, tidy, conf.int = TRUE, exponentiate = TRUE),
-           tidy_anova = map(fit, \(x) x |> Anova(type = "III") |> tidy())) |> 
+           tidy_anova = map(fit, \(x) x |> car::Anova(type = "III") |> tidy())) |> 
     dplyr::select(-data)
 }
 
@@ -536,10 +557,7 @@ run_all_multi_combos <- function(data, names, project) {
     mutate(res = list(run_multivariable(data, names, sex_arg, signature))) |> 
     dplyr::select(-data) |> 
     mutate(project = project) |> 
-    unnest(res) |> 
-    unnest(tidy_coxph, names_sep = "_") |> 
-    unnest(tidy_anova, names_sep = "_")
-  
+    unnest(res) 
 }
 
 # Plotting Helpers -------------------------------------------------------------
@@ -679,6 +697,94 @@ make_univariate_plot <- function(univariate_data, project) {
     coord_cartesian(xlim = c(0.05, 20))
   
 
+  agg_png(file_name, width = 9, height = height,  units = "in", res = 288)
+  print(all)
+  dev.off()
+  
+  file_name
+  
+}
+
+make_multivariable_plot <- function(multi_data, project) {
+  proj_fig_dir <- tar_read_raw(paste0("fig_dir_", project))
+  file_name <- paste0(proj_fig_dir, "multivariable-plot.png")
+  
+  # Temp
+  multi_data <- tar_read(multivariable_hnsc) |> 
+    dplyr::select(-fit) |> 
+    unnest(tidy_coxph) |> 
+    dplyr::mutate(term = str_remove_all(term, "`")) |> 
+    separate(term, into = c("stratum", "level"), sep = "|")
+  
+  b <- multi_data |> 
+    unnest(cols = names) |> 
+    rowwise() |>
+    mutate(level = if_else(tidy_coxph_term != names, 
+                           str_remove(tidy_coxph_term, paste0("^", names)),
+                           tidy_coxph_term),
+           subtitle = sex_arg |> 
+             str_replace("^M$", "Males") |> 
+             str_replace("^F$", "Females") |> 
+             str_replace("^all$", "All"),
+           est_label = paste(round(tidy_coxph_conf.low, 2), round(tidy_coxph_estimate, 2), round(tidy_coxph_conf.high, 2))) |> 
+    relocate(level, .before = tidy_coxph_term) |> 
+    mutate(plot_conf_low = if_else(tidy_coxph_conf.low < 0.03, 0.03, tidy_coxph_conf.low),
+           plot_conf_high = if_else(tidy_coxph_conf.high > 25, 25, tidy_coxph_conf.high))
+  
+  
+  # all
+  all <- b |>
+    dplyr::filter(sex_arg == "all") |> 
+    dplyr::filter(tidy_anova_term != "NULL") |> 
+    group_by(names) |> 
+    mutate(mean_est = mean(tidy_coxph_estimate)) |> 
+    arrange(tidy_coxph_estimate) |> 
+    ungroup() |> 
+    mutate(
+      anova_stars = case_when(tidy_anova_p.value < 0.001 ~ "***",
+                              tidy_anova_p.value < 0.01 ~ "**",
+                              tidy_anova_p.value < 0.05 ~ "*",
+                              TRUE ~ ""),
+      indiv_stars = case_when(tidy_coxph_p.value < 0.001 ~ "***",
+                              tidy_coxph_p.value < 0.01 ~ "**",
+                              tidy_coxph_p.value < 0.05 ~ "*",
+                              TRUE ~ ""),
+      y = if_else(is.na(base_level),
+                  level,
+                  paste0(level, " vs ", base_level)),
+      y = y |> 
+        str_replace_all("_", " ") |> 
+        str_to_title() |> 
+        str_replace_all("(\\bI[iv]*\\b)", str_to_upper) |> 
+        str_replace("(\\bVs\\b)", str_to_lower),
+      y = paste(indiv_stars, y),
+      stratum = paste(names, anova_stars),
+      stratum = stratum |> 
+        str_replace_all("_", " ") |> 
+        str_to_title() |> 
+        str_replace_all("Cd8", "CD8+") |> 
+        str_replace_all("\\bB\\b", "B-cell") |> 
+        str_replace_all("\\bBin\\b", "Signature") |> 
+        str_replace_all("Tnm", "TNM") |> 
+        fct_inorder())
+  height <- (all$y |> length())/3
+  all |>  
+    ggplot(aes(x = tidy_coxph_estimate, y = y)) + 
+    geom_vline(xintercept = 1, color = "#FF0000", size = 0.2) + 
+    geom_linerange(aes(xmin = plot_conf_low, xmax = plot_conf_high)) +
+    geom_point() + 
+    facet_grid(rows = "stratum", shrink = T, scales = "free", space = "free") +
+    bladdr::theme_tufte(10) +
+    scale_x_log10(breaks = c(0.05, 0.1, 0.25, 0.5, 2, 4, 10, 20), labels = c(0.05, 0.1, 0.25, 0.5, 2, 4, 10, 20)) +
+    theme(panel.grid.major.x = element_line(color = "#CCCCCC"),
+          strip.placement = "inside",
+          strip.text.y = element_text(angle = 0, hjust = 0, size = 10, face = "bold"),
+          axis.text.y = element_text(size = 9),
+          axis.title = element_blank(),
+          axis.ticks = element_blank()) + 
+    coord_cartesian(xlim = c(0.05, 20))
+  
+  
   agg_png(file_name, width = 9, height = height,  units = "in", res = 288)
   print(all)
   dev.off()

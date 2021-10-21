@@ -714,7 +714,7 @@ make_multivariable_plot <- function(multi_data, project) {
     dplyr::select(-fit) |> 
     unnest(tidy_coxph) |> 
     dplyr::mutate(term = str_remove_all(term, "`")) |> 
-    separate(term, into = c("stratum", "level"), sep = "|")
+    separate(term, into = c("stratum", "level"), sep = "\\|")
   
   b <- multi_data |> 
     unnest(cols = names) |> 

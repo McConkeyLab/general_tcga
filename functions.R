@@ -707,7 +707,6 @@ make_univariate_plot <- function(univariate_data, project) {
           axis.ticks = element_blank()) + 
     coord_cartesian(xlim = c(0.05, 20))
   
-
   agg_png(file_name, width = 9, height = height,  units = "in", res = 288)
   print(all)
   dev.off()
@@ -777,21 +776,39 @@ make_multivariable_plot <- function(multi_data, project, sex = NA, sig = NA) {
         str_replace_all("\\bB\\b", "B-cell") |> 
         str_replace_all("\\bBin\\b", "Signature") |> 
         str_replace_all("Tnm", "TNM"),
-      category = word(stratum, -1)) |> 
-    mutate(sex_arg_piv = sex_arg) |> 
-    pivot_wider(names_from = sex_arg_piv, values_from = anova_stars) |> 
-    group_by(category) |> 
-    fill("all", "M", "F", .direction = "downup") |> 
-    unite(amf, "all", "M", "F", sep = "/", remove = FALSE) |>
-    mutate(amf = paste0(" (", amf, ")"),
-           stratum = paste(stratum, amf)) |> 
-    arrange(category) |> 
-    mutate(stratum = fct_inorder(stratum),
-           sex_arg = factor(sex_arg, levels = c("all", "M", "F")))
+      category = word(stratum, -1))
   
-  height <- (multi_data$y |> length())/3
+  if (is.na(sex)) {
+    multi_data <- multi_data |> 
+      mutate(sex_arg_piv = sex_arg) |> 
+      pivot_wider(names_from = sex_arg_piv, values_from = anova_stars) |> 
+      group_by(category) |> 
+      fill("all", "M", "F", .direction = "downup") |> 
+      unite(amf, "all", "M", "F", sep = "/", remove = FALSE) |>
+      mutate(amf = paste0(" (", amf, ")"),
+             stratum = paste(stratum, amf)) |> 
+      arrange(category) |> 
+      mutate(stratum = fct_inorder(stratum),
+             sex_arg = factor(sex_arg, levels = c("all", "M", "F")))
+  } 
   
-  multi_plot <- multi_data |>  
+  if (is.na(sig)) {
+    multi_data2 <- multi_data |> 
+      mutate(signature_piv = signature) |> 
+      pivot_wider(names_from = signature_piv, values_from = anova_stars) |> 
+      group_by(stratum) |> 
+      fill("none", "b_bin", "cd8_bin", "imm_bin", .direction = "downup") |> 
+      unite("nbti", "none", "b_bin", "cd8_bin", "imm_bin", sep = "/", remove = FALSE, na.rm = TRUE) |> 
+      mutate(nbti = paste0(" (", nbti, ")"),
+      stratum = paste(stratum, nbti)) |> 
+      arrange(category) |> 
+      mutate(stratum = fct_inorder(stratum),
+             signature = factor(signature, levels = c("imm_bin", "cd8_bin", "b_bin", "none")))
+  }
+
+  height <- (multi_data2$y |> length())/3
+  
+  multi_plot <- multi_data2 |>  
     ggplot(aes(x = estimate, y = y, color = !!var)) + 
     geom_vline(xintercept = 1, color = "#FF0000", size = 0.2) + 
     geom_linerange(aes(xmin = plot_conf_low, xmax = plot_conf_high), position = position_dodge2(width = .7)) +

@@ -10,7 +10,8 @@ tar_option_set(
   packages = c(
     "tidyverse", "broom", "glue", "rvest", "GenomicDataCommons", "TCGAutils", "biomaRt",
     "SummarizedExperiment", "DESeq2", "GSVA", "future", "future.callr", "gt",
-    "gtsummary", "survival", "survminer", "webshot", "ragg", "car", "tidymodels", "censored"
+    "gtsummary", "survival", "survminer", "webshot", "ragg", "car", "tidymodels",
+    "censored", "ggsci"
   )
 )
 
@@ -57,6 +58,9 @@ mapped <- tar_map(
   # Plots ----------------------------------------------------------------------
   tar_target(univariate_plots,
              make_univariate_plot(univariate, project)),
+  
+  tar_target(multivariable_plots,
+             make_all_multivariable_plot_combos(multivariable, project)),
   
   tar_target(density_plots,
              dens_ind_all(data = dds_w_bin_scores, 

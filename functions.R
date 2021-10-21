@@ -443,7 +443,7 @@ tidy_for_survival <- function(dds, project) {
   }
   
   data <- data |> 
-    mutate(race = race |> fct_drop() |> fct_relevel("white"))
+    mutate(race = race |> fct_drop() |> fct_relevel("white")) # this feels...wrong
   
   data
   
@@ -464,8 +464,6 @@ run_univariate <- function(data, stratum, sex_arg = "all") {
     as.formula(paste("Surv(follow_up_time, death) ~ ", stratum)) |> 
       coxph(data = df)
   }
-  
-
   
   tibble(data = list(data)) |> 
     mutate(fit_cox = map(data, cox_model),
@@ -529,11 +527,18 @@ run_multivariable <- function(data, multivariable_names, sex_arg = "all", signat
     paste0(var, "|", lvl)
   }
   
-  rec <- recipe(data) |>   
+  rec <- recipe(data) |>
     step_select(all_of(multivariable_names), follow_up_time, death) |> 
     step_dummy(all_nominal(), naming = naming_function) 
   
   prepared_data <- rec |> 
+    prep() |> 
+    bake(new_data = NULL)
+
+  rec_anova <- recipe(data) |>
+    step_select(all_of(multivariable_names), follow_up_time, death)
+  
+  prepared_data_anova <- rec_anova |> 
     prep() |> 
     bake(new_data = NULL)
   
@@ -541,10 +546,11 @@ run_multivariable <- function(data, multivariable_names, sex_arg = "all", signat
     coxph(Surv(follow_up_time, death) ~ ., data = df)
   }
   
-  tibble(data = list(prepared_data)) |> 
+  tibble(data = list(prepared_data), data_anova = list(prepared_data_anova)) |> 
     mutate(fit = map(data, fit_mod),
+           fit_anova = map(data_anova, fit_mod),
            tidy_coxph = map(fit, tidy, conf.int = TRUE, exponentiate = TRUE),
-           tidy_anova = map(fit, \(x) x |> car::Anova(type = "III") |> tidy())) |> 
+           tidy_anova = map(fit_anova, \(x) x |> car::Anova(type = "III") |> tidy())) |> 
     dplyr::select(-data)
 }
 
@@ -557,7 +563,16 @@ run_all_multi_combos <- function(data, names, project) {
     mutate(res = list(run_multivariable(data, names, sex_arg, signature))) |> 
     dplyr::select(-data) |> 
     mutate(project = project) |> 
-    unnest(res) 
+    unnest(res) |> 
+    mutate(
+      base_level = map2(fit_anova, names, function(x, y) {
+        x <- x$xlevels
+        y <- enframe(y)
+        x <- lapply(x, \(x) x[1]) |> 
+          enframe()
+        full_join(y, x, by = c("value" = "name"))
+      })) |> 
+    unnest(cols = base_level)
 }
 
 # Plotting Helpers -------------------------------------------------------------
@@ -634,10 +649,6 @@ make_univariate_plot <- function(univariate_data, project) {
     mutate(level = if_else(fit_tidy_cox_term != stratum, 
                            str_remove(fit_tidy_cox_term, paste0("^", stratum)),
                            fit_tidy_cox_term),
-           subtitle = sex_arg |> 
-             str_replace("^M$", "Males") |> 
-             str_replace("^F$", "Females") |> 
-             str_replace("^all$", "All"),
            est_label = paste(round(fit_tidy_cox_conf.low, 2), round(fit_tidy_cox_estimate, 2), round(fit_tidy_cox_conf.high, 2))) |> 
     relocate(level, .before = fit_tidy_cox_term) |> 
     mutate(plot_conf_low = if_else(fit_tidy_cox_conf.low < 0.03, 0.03, fit_tidy_cox_conf.low),
@@ -705,74 +716,86 @@ make_univariate_plot <- function(univariate_data, project) {
   
 }
 
-make_multivariable_plot <- function(multi_data, project) {
-  proj_fig_dir <- tar_read_raw(paste0("fig_dir_", project))
-  file_name <- paste0(proj_fig_dir, "multivariable-plot.png")
+make_multivariable_plot <- function(multi_data, project, sex = NA, sig = NA) {
   
-  # Temp
-  multi_data <- tar_read(multivariable_hnsc) |> 
-    dplyr::select(-fit) |> 
+  if (all(is.na(sex), is.na(sig)) | all(!is.na(sex), !is.na(sig))) {
+    stop("Either sex or sig must be set.")
+  }
+  
+  if (!is.na(sex)) {
+    var <- sex
+  }
+  if (!is.na(sig)) {
+    var <- sig
+  }
+  
+  proj_fig_dir <- tar_read_raw(paste0("fig_dir_", project))
+  file_name <- paste0(proj_fig_dir, "multivariable-plot", "_", var, ".png")
+
+  if (is.na(sex)) {
+    multi_data <- dplyr::filter(multi_data, signature == sig)
+    var <- sym("sex_arg")
+  }
+  
+  if (is.na(sig)) {
+    multi_data <- dplyr::filter(multi_data, sex_arg == sex)
+    var <- sym("signature")
+  }
+
+  multi_data <- multi_data |> 
+    dplyr::select(-fit, -fit_anova, -data_anova, -names) |> 
     unnest(tidy_coxph) |> 
     dplyr::mutate(term = str_remove_all(term, "`")) |> 
-    separate(term, into = c("stratum", "level"), sep = "\\|")
-  
-  b <- multi_data |> 
-    unnest(cols = names) |> 
-    rowwise() |>
-    mutate(level = if_else(tidy_coxph_term != names, 
-                           str_remove(tidy_coxph_term, paste0("^", names)),
-                           tidy_coxph_term),
-           subtitle = sex_arg |> 
-             str_replace("^M$", "Males") |> 
-             str_replace("^F$", "Females") |> 
-             str_replace("^all$", "All"),
-           est_label = paste(round(tidy_coxph_conf.low, 2), round(tidy_coxph_estimate, 2), round(tidy_coxph_conf.high, 2))) |> 
-    relocate(level, .before = tidy_coxph_term) |> 
-    mutate(plot_conf_low = if_else(tidy_coxph_conf.low < 0.03, 0.03, tidy_coxph_conf.low),
-           plot_conf_high = if_else(tidy_coxph_conf.high > 25, 25, tidy_coxph_conf.high))
-  
-  
-  # all
-  all <- b |>
-    dplyr::filter(sex_arg == "all") |> 
-    dplyr::filter(tidy_anova_term != "NULL") |> 
-    group_by(names) |> 
-    mutate(mean_est = mean(tidy_coxph_estimate)) |> 
-    arrange(tidy_coxph_estimate) |> 
-    ungroup() |> 
+    separate(term, into = c("stratum", "level"), sep = "\\|") |> 
+    unnest(tidy_anova, names_sep = "_") |> 
+    dplyr::select(-name, -tidy_anova_statistic, -tidy_anova_df, -statistic, -std.error) |> 
+    dplyr::filter(stratum == tidy_anova_term, value == stratum) |> 
+    dplyr::select(-tidy_anova_term) |>
+    dplyr::mutate(value.y = map(value.y, \(x) if_else(is.null(x), NA_character_, x))) |> 
+    unnest(cols = value.y) |> 
+    mutate(base_level = if_else(is.na(value.y), value, value.y)) |> 
+    dplyr::select(-value.y, -value) |> 
+    mutate(plot_conf_low = if_else(conf.low < 0.03, 0.03, conf.low),
+           plot_conf_high = if_else(conf.high > 25, 25, conf.high)) |> 
     mutate(
       anova_stars = case_when(tidy_anova_p.value < 0.001 ~ "***",
                               tidy_anova_p.value < 0.01 ~ "**",
                               tidy_anova_p.value < 0.05 ~ "*",
-                              TRUE ~ ""),
-      indiv_stars = case_when(tidy_coxph_p.value < 0.001 ~ "***",
-                              tidy_coxph_p.value < 0.01 ~ "**",
-                              tidy_coxph_p.value < 0.05 ~ "*",
-                              TRUE ~ ""),
-      y = if_else(is.na(base_level),
-                  level,
+                              TRUE ~ "NS"),
+      y = if_else(base_level == stratum,
+                  base_level,
                   paste0(level, " vs ", base_level)),
       y = y |> 
         str_replace_all("_", " ") |> 
         str_to_title() |> 
         str_replace_all("(\\bI[iv]*\\b)", str_to_upper) |> 
         str_replace("(\\bVs\\b)", str_to_lower),
-      y = paste(indiv_stars, y),
-      stratum = paste(names, anova_stars),
       stratum = stratum |> 
         str_replace_all("_", " ") |> 
         str_to_title() |> 
         str_replace_all("Cd8", "CD8+") |> 
         str_replace_all("\\bB\\b", "B-cell") |> 
         str_replace_all("\\bBin\\b", "Signature") |> 
-        str_replace_all("Tnm", "TNM") |> 
-        fct_inorder())
-  height <- (all$y |> length())/3
-  all |>  
-    ggplot(aes(x = tidy_coxph_estimate, y = y)) + 
+        str_replace_all("Tnm", "TNM"),
+      category = word(stratum, -1)) |> 
+    mutate(sex_arg_piv = sex_arg) |> 
+    pivot_wider(names_from = sex_arg_piv, values_from = anova_stars) |> 
+    group_by(category) |> 
+    fill("all", "M", "F", .direction = "downup") |> 
+    unite(amf, "all", "M", "F", sep = "/", remove = FALSE) |>
+    mutate(amf = paste0(" (", amf, ")"),
+           stratum = paste(stratum, amf)) |> 
+    arrange(category) |> 
+    mutate(stratum = fct_inorder(stratum),
+           sex_arg = factor(sex_arg, levels = c("all", "M", "F")))
+  
+  height <- (multi_data$y |> length())/3
+  
+  multi_plot <- multi_data |>  
+    ggplot(aes(x = estimate, y = y, color = !!var)) + 
     geom_vline(xintercept = 1, color = "#FF0000", size = 0.2) + 
-    geom_linerange(aes(xmin = plot_conf_low, xmax = plot_conf_high)) +
-    geom_point() + 
+    geom_linerange(aes(xmin = plot_conf_low, xmax = plot_conf_high), position = position_dodge2(width = .7)) +
+    geom_point(position = position_dodge2(width = 0.7)) + 
     facet_grid(rows = "stratum", shrink = T, scales = "free", space = "free") +
     bladdr::theme_tufte(10) +
     scale_x_log10(breaks = c(0.05, 0.1, 0.25, 0.5, 2, 4, 10, 20), labels = c(0.05, 0.1, 0.25, 0.5, 2, 4, 10, 20)) +
@@ -782,16 +805,25 @@ make_multivariable_plot <- function(multi_data, project) {
           axis.text.y = element_text(size = 9),
           axis.title = element_blank(),
           axis.ticks = element_blank()) + 
-    coord_cartesian(xlim = c(0.05, 20))
+    coord_cartesian(xlim = c(0.05, 20)) +
+    guides(color = guide_legend(reverse = TRUE)) +
+    scale_color_npg() # A little vain, but it's pretty
+  
+  multi_plot
   
   
   agg_png(file_name, width = 9, height = height,  units = "in", res = 288)
-  print(all)
+  print(multi_plot)
   dev.off()
   
   file_name
-  
 }
+
+make_all_multivariable_plot_combos <- function(multi_data, project) {
+  tib <- tibble(multi_data = list(multi_data), project = project, sex = c("all", "M", "F"))
+  pmap_chr(list(tib$multi_data, tib$project, tib$sex), make_multivariable_plot)
+}
+
 
 dense_ind <- function(data, x, file_name, project, color = NULL, 
                       facet = NULL, width = 3, height = 3) {

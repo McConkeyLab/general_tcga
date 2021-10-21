@@ -186,7 +186,6 @@ download_tcga_data <- function(manifest) {
 
 man_to_dds <- function(clin, manifest) {
   
-  
   # Some samples may be in the manifest but not in the clinical data.
   
   # This is because clinical data was filtered to remove patients with
@@ -352,7 +351,9 @@ tidy_for_survival <- function(dds, project) {
   data <- dds |> 
     colData() |> 
     as_tibble() |> 
-    dplyr::select(-c(sample:cases.case_id)) # ID columns, not used for survival
+    dplyr::select(-c(sample:cases.case_id)) |> # ID columns, not used for survival
+    dplyr::select(-matches("days_to_collection|anatomic")) |>
+    dplyr::select(-b_cell, -cd8, -exp_immune) # Just using binarized
   
   # Remove columns that are all NA
   na_sums <- apply(data, 2, \(x) is.na(x) |> sum())
@@ -364,17 +365,13 @@ tidy_for_survival <- function(dds, project) {
   }
   
   # Remove TNM 'x'
-  no_x <- no_nas |>
+  data <- no_nas |>
     mutate(across(contains("tnm"), ~ str_replace(.x, ".*x$", NA_character_))) |> 
     mutate(across(contains("tnm_n"), ~ if_else(.x != "n0", "n+", .x))) |> 
     mutate(across(contains("tnm_n"), ~ fct_relevel(.x, "n0"))) |> 
     mutate(across(matches("^grade$"), ~ str_replace(.x, ".*x$", NA_character_))) |> 
     mutate(across(matches("^grade$"), ~ fct_relevel(.x, "low")))
-  
-  data <- no_x |> 
-    dplyr::select(-matches("days_to_collection|anatomic")) |> 
-    dplyr::select(-b_cell, -cd8, -exp_immune) # Just using discretized 
-  
+
   if (project %in% c("coad", "hnsc", "lihc", "luad")) {
     data <- data |> 
       mutate(race = if_else(race %in% c("asian", "american indian or alaska native"), 
@@ -455,7 +452,7 @@ run_univariate <- function(data, stratum, sex_arg = "all") {
     data <- dplyr::filter(data, sex == sex_arg)
   }
   
-  #Checks for factors with one level
+  # Checks for factors with one level
   if (data[[stratum]] |> as.factor() |> droplevels() |> levels() |> length() <= 1) {
     return()
   }
@@ -789,11 +786,13 @@ make_multivariable_plot <- function(multi_data, project, sex = NA, sig = NA) {
              stratum = paste(stratum, amf)) |> 
       arrange(category) |> 
       mutate(stratum = fct_inorder(stratum),
-             sex_arg = factor(sex_arg, levels = c("all", "M", "F")))
+             sex_arg = if_else(sex_arg == "all", "All", sex_arg),
+             sex_arg = factor(sex_arg, levels = c("F", "M", "All")))
+    legend_title <- "Sex"
   } 
   
   if (is.na(sig)) {
-    multi_data2 <- multi_data |> 
+    multi_data <- multi_data |> 
       mutate(signature_piv = signature) |> 
       pivot_wider(names_from = signature_piv, values_from = anova_stars) |> 
       group_by(stratum) |> 
@@ -803,12 +802,20 @@ make_multivariable_plot <- function(multi_data, project, sex = NA, sig = NA) {
       stratum = paste(stratum, nbti)) |> 
       arrange(category) |> 
       mutate(stratum = fct_inorder(stratum),
-             signature = factor(signature, levels = c("imm_bin", "cd8_bin", "b_bin", "none")))
+             signature = signature |> 
+               str_remove("_bin") |> 
+               str_replace("imm", "Immune") |> 
+               str_replace("^b", "B\\-Cell") |> 
+               str_to_title() |> 
+               str_replace("Cd8", "CD8\\+"),
+             signature = factor(signature, levels = c("Immune", "CD8+", "B-Cell", "None")))
+    
+    legend_title <- "Signature"
   }
 
-  height <- (multi_data2$y |> length())/3
+  height <- (multi_data$y |> length())/3
   
-  multi_plot <- multi_data2 |>  
+  multi_plot <- multi_data |>  
     ggplot(aes(x = estimate, y = y, color = !!var)) + 
     geom_vline(xintercept = 1, color = "#FF0000", size = 0.2) + 
     geom_linerange(aes(xmin = plot_conf_low, xmax = plot_conf_high), position = position_dodge2(width = .7)) +
@@ -823,7 +830,7 @@ make_multivariable_plot <- function(multi_data, project, sex = NA, sig = NA) {
           axis.title = element_blank(),
           axis.ticks = element_blank()) + 
     coord_cartesian(xlim = c(0.05, 20)) +
-    guides(color = guide_legend(reverse = TRUE)) +
+    guides(color = guide_legend(reverse = TRUE, title = legend_title)) +
     scale_color_npg() # A little vain, but it's pretty
   
   multi_plot
@@ -837,8 +844,14 @@ make_multivariable_plot <- function(multi_data, project, sex = NA, sig = NA) {
 }
 
 make_all_multivariable_plot_combos <- function(multi_data, project) {
-  tib <- tibble(multi_data = list(multi_data), project = project, sex = c("all", "M", "F"))
-  pmap_chr(list(tib$multi_data, tib$project, tib$sex), make_multivariable_plot)
+  sig_list <- c("none", "b_bin", "cd8_bin", "imm_bin", NA)
+  sex_list <- c("all", "M", "F", NA)
+  eg <- expand_grid(sig_list, sex_list) |> 
+    dplyr::filter(xor(is.na(sex_list), is.na(sig_list))) |> 
+    mutate(multi_data = list(multi_data),
+           project = project,
+           plot_paths = pmap_chr(list(multi_data, project, sex_list, sig_list), make_multivariable_plot))
+  eg$plot_paths  
 }
 
 

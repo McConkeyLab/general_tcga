@@ -500,8 +500,7 @@ get_multivariable_names <- function(univariate, project) {
   multi_names <- multi_names[!str_detect(multi_names, "_tnm")]
   # These factors will be added in individually later and must be removed so
   # they can be added in a controlled fashion
-  multi_names <- multi_names[!(multi_names %in% c("sex", "cd8", "b_cell", "exp_immune", 
-                                                  "cd8_bin", "b_bin", "imm_bin"))]
+  multi_names <- multi_names[!(multi_names %in% c("sex", "cd8_bin", "b_bin", "imm_bin"))]
   
   if (project == "lusc") {
     multi_names <- c(multi_names, "pack_years")
@@ -608,6 +607,24 @@ ggsurvplot_facet2 <- function(pval.size = 5, ...) {
   ggsurvplot_facet(...)
 }
 
+to_stars <- function(x, ns = ""){
+  case_when(x < 0.001 ~ "***",
+            x < 0.01 ~ "**",
+            x < 0.05 ~ "*",
+            TRUE ~ ns)
+}
+
+make_plot_strata_names <- function(stratum){
+  stratum |> 
+    str_replace_all("_", " ") |> 
+    str_to_title() |> 
+    str_replace_all("Cd8", "CD8+") |> 
+    str_replace_all("\\bB\\b", "B-cell") |> 
+    str_replace_all("\\bBin\\b", "Signature") |> 
+    str_replace_all("Tnm", "TNM") |> 
+    str_replace_all("(\\bI[iv]*\\b)", str_to_upper) |> 
+    str_replace("(\\bVs\\b)", str_to_lower)
+}
 
 # Make Plots -------------------------------------------------------------------
 
@@ -657,9 +674,7 @@ make_univariate_plot <- function(univariate_data, project) {
     relocate(level, .before = fit_tidy_cox_term) |> 
     mutate(plot_conf_low = if_else(fit_tidy_cox_conf.low < 0.03, 0.03, fit_tidy_cox_conf.low),
            plot_conf_high = if_else(fit_tidy_cox_conf.high > 25, 25, fit_tidy_cox_conf.high))
-
-  
-  # all
+  # All ------------------------------------------------------------------------
   all <- b |>
     dplyr::filter(sex_arg == "all") |> 
     dplyr::filter(fit_tidy_anova_term != "NULL") |> 
@@ -668,31 +683,15 @@ make_univariate_plot <- function(univariate_data, project) {
     arrange(fit_tidy_cox_estimate) |> 
     ungroup() |> 
     mutate(
-      anova_stars = case_when(fit_tidy_anova_p.value < 0.001 ~ "***",
-                              fit_tidy_anova_p.value < 0.01 ~ "**",
-                              fit_tidy_anova_p.value < 0.05 ~ "*",
-                              TRUE ~ ""),
-      indiv_stars = case_when(fit_tidy_cox_p.value < 0.001 ~ "***",
-                              fit_tidy_cox_p.value < 0.01 ~ "**",
-                              fit_tidy_cox_p.value < 0.05 ~ "*",
-                              TRUE ~ ""),
+      anova_stars = to_stars(fit_tidy_anova_p.value, ns = ""),
+      indiv_stars = to_stars(fit_tidy_cox_p.value, ns = ""),
       y = if_else(is.na(base_level),
                   level,
                   paste0(level, " vs ", base_level)),
-      y = y |> 
-        str_replace_all("_", " ") |> 
-        str_to_title() |> 
-        str_replace_all("(\\bI[iv]*\\b)", str_to_upper) |> 
-        str_replace("(\\bVs\\b)", str_to_lower),
+      y = make_plot_strata_names(y),
       y = paste(indiv_stars, y),
       stratum = paste(stratum, anova_stars),
-      stratum = stratum |> 
-        str_replace_all("_", " ") |> 
-        str_to_title() |> 
-        str_replace_all("Cd8", "CD8+") |> 
-        str_replace_all("\\bB\\b", "B-cell") |> 
-        str_replace_all("\\bBin\\b", "Signature") |> 
-        str_replace_all("Tnm", "TNM") |> 
+      stratum = make_plot_strata_names(stratum) |> 
         fct_inorder())
   height <- (all$y |> length())/3
   all <- all |>  
@@ -761,25 +760,12 @@ make_multivariable_plot <- function(multi_data, project, sex = NA, sig = NA) {
     mutate(plot_conf_low = if_else(conf.low < 0.03, 0.03, conf.low),
            plot_conf_high = if_else(conf.high > 25, 25, conf.high)) |> 
     mutate(
-      anova_stars = case_when(tidy_anova_p.value < 0.001 ~ "***",
-                              tidy_anova_p.value < 0.01 ~ "**",
-                              tidy_anova_p.value < 0.05 ~ "*",
-                              TRUE ~ "NS"),
+      anova_stars = to_stars(tidy_anova_p.value, ns = "NS"),
       y = if_else(base_level == stratum,
                   base_level,
                   paste0(level, " vs ", base_level)),
-      y = y |> 
-        str_replace_all("_", " ") |> 
-        str_to_title() |> 
-        str_replace_all("(\\bI[iv]*\\b)", str_to_upper) |> 
-        str_replace("(\\bVs\\b)", str_to_lower),
-      stratum = stratum |> 
-        str_replace_all("_", " ") |> 
-        str_to_title() |> 
-        str_replace_all("Cd8", "CD8+") |> 
-        str_replace_all("\\bB\\b", "B-cell") |> 
-        str_replace_all("\\bBin\\b", "Signature") |> 
-        str_replace_all("Tnm", "TNM"),
+      y = make_plot_strata_names(y),
+      stratum = make_plot_strata_names(stratum),
       category = word(stratum, -1))
   
   if (is.na(sex)) {
@@ -839,10 +825,7 @@ make_multivariable_plot <- function(multi_data, project, sex = NA, sig = NA) {
     coord_cartesian(xlim = c(0.05, 20)) +
     guides(color = guide_legend(reverse = TRUE, title = legend_title)) +
     scale_color_npg() # A little vain, but it's pretty
-  
-  multi_plot
-  
-  
+
   agg_png(file_name, width = 9, height = height,  units = "in", res = 288)
   print(multi_plot)
   dev.off()

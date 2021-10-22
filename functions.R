@@ -141,7 +141,8 @@ tidy_clin <- function(clin_path) {
     dplyr::filter(!is.na(sex)) |> 
     mutate(sex = factor(sex, levels = c("male", "female"), labels = c("M", "F")),
            age = as.numeric(age)) |> 
-    mutate(across(matches("grade|race"), fct_rev))
+    mutate(across(matches("grade"), fct_rev)) |> 
+    mutate(race = fct_relevel(race, "white"))
 }
 
 make_man <- function(rm_cases_file, tcga_project) {
@@ -287,7 +288,6 @@ run_gsva <- function(dds, signatures) {
   signatures$exp_immune[(signatures$exp_immune == "HLA-DRA")] <- "HLA.DRA"
   signatures$exp_immune[(signatures$exp_immune == "HLA-E")] <- "HLA.E"
   
-  
   genes <- unlist(signatures) |>
     as_tibble()
   no_match <- as.character(genes[!(genes$value %in% rownames(dds)), ])
@@ -298,12 +298,7 @@ run_gsva <- function(dds, signatures) {
     warning(paste(no_match, "is in a signature but has no match in the dataset\n"))
   }
   
-  scores <- gsva(
-    assay(dds, 2),
-    signatures,
-    mx.diff = T,
-    kcdf = "Gaussian"
-  )
+  gsva(assay(dds, 2), signatures, mx.diff = T, kcdf = "Gaussian")
 }
 
 merge_gsva <- function(data, scores) {
@@ -341,7 +336,6 @@ bin_gsva <- function(dds) {
   colData(dds) <- col_data
   
   dds
-  
 }
 
 get_coldata_tibble <- function(dds, project){
@@ -357,11 +351,9 @@ get_gsva_tibble <- function(tibble){
 
 # Survival ---------------------------------------------------------------------
 
-tidy_for_survival <- function(dds, project) {
+tidy_for_survival <- function(coldata_tibble, project) {
   
-  data <- dds |> 
-    colData() |> 
-    as_tibble() |> 
+  data <- coldata_tibble |> 
     dplyr::select(-c(sample:cases.case_id)) |> # ID columns, not used for survival
     dplyr::select(-matches("days_to_collection|anatomic")) |>
     dplyr::select(-b_cell, -cd8, -exp_immune) # Just using binarized
@@ -450,11 +442,8 @@ tidy_for_survival <- function(dds, project) {
       dplyr::select(-hpv_status) # Too few to do any surv on
   }
   
-  data <- data |> 
+  data |> 
     mutate(race = race |> fct_drop() |> fct_relevel("white")) # this feels...wrong
-  
-  data
-  
 }
 
 run_univariate <- function(data, stratum, sex_arg = "all") {
@@ -586,6 +575,13 @@ run_all_multi_combos <- function(data, names, project) {
 # Plotting Helpers -------------------------------------------------------------
 
 theme_tufte <- function(font_size = 30) {
+  
+  if(Sys.info()[["sysname"]] == "Windows") {
+    gill_sans <- "Gill Sans MT"
+  } else if(Sys.info()[["sysname"]] == "Darwin") {
+    gill_sans <-  "Gill Sans"
+  }
+  
   theme(
     panel.grid = element_blank(),
     panel.background = element_rect(fill = "#FFFFF8", color = "#CCCCCC"),
@@ -597,7 +593,7 @@ theme_tufte <- function(font_size = 30) {
     legend.key = element_blank(),
     axis.line = element_line(size = 0.1, color = "#BBBBB0"),
     axis.ticks = element_line(size = 0.3, color = "#BBBBB0"),
-    text = element_text(family = "Gill Sans MT", size = font_size)
+    text = element_text(family = gill_sans, size = font_size)
   )
 }
 

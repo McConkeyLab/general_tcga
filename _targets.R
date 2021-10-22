@@ -50,7 +50,7 @@ mapped <- tar_map(
   tar_target(gsva_tibble, get_gsva_tibble(coldata_tibble)),
   
   # Survival analyses ----------------------------------------------------------
-  tar_target(surv_tidy, tidy_for_survival(dds_w_bin_scores, project)),
+  tar_target(surv_tidy, tidy_for_survival(coldata_tibble, project)),
   tar_target(univariate, run_all_uni_combos(surv_tidy, project)),
   tar_target(multivariable_names, get_multivariable_names(univariate, project)),
   tar_target(multivariable, run_all_multi_combos(surv_tidy, multivariable_names, project)),
@@ -66,12 +66,12 @@ mapped <- tar_map(
   tar_target(multivariable_plots,
              make_all_multivariable_plot_combos(multivariable, project)),
   
-  tar_target(density_plots,
-             dens_ind_all(data = dds_w_bin_scores, 
-                          xs = c("b_cell", "exp_immune", "cd8"), 
-                          project, 
-                          color = "sex"),
-             format = "file"),
+  # tar_target(density_plots,
+  #            dens_ind_all(data = dds_w_bin_scores, 
+  #                         xs = c("b_cell", "exp_immune", "cd8"), 
+  #                         project, 
+  #                         color = "sex"),
+  #            format = "file"),
   tar_target(survival_plots,
              surv_ind_all(data = dds_w_bin_scores,
                           strata = c("b_bin", "cd8_bin", "imm_bin"),

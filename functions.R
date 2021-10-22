@@ -344,6 +344,17 @@ bin_gsva <- function(dds) {
   
 }
 
+get_coldata_tibble <- function(dds, project){
+  dds |> 
+    colData() |> 
+    as_tibble() |> 
+    mutate(project = project)
+}
+
+get_gsva_tibble <- function(tibble){
+  dplyr::select(tibble, project, sex, b_cell, cd8, exp_immune)
+} 
+
 # Survival ---------------------------------------------------------------------
 
 tidy_for_survival <- function(dds, project) {
@@ -854,7 +865,6 @@ make_all_multivariable_plot_combos <- function(multi_data, project) {
   eg$plot_paths  
 }
 
-
 dense_ind <- function(data, x, file_name, project, color = NULL, 
                       facet = NULL, width = 3, height = 3) {
   
@@ -1033,4 +1043,37 @@ make_hr_plot_multi <- function(data) {
   print(hr_plot)
   dev.off()
   "./00_common/hr-plot_multi.png"
+}
+
+make_density_plot <- function(data) {
+  temp <- data
+  all <- data |> 
+    mutate(sex = "All") |>
+    bind_rows(temp) |> 
+    mutate(Sex = sex) |> 
+    pivot_longer(cols = c(b_cell, cd8, exp_immune), names_to = "signature") |> 
+    mutate(project = toupper(project),
+           signature = case_when(signature == "b_cell" ~ "B-cell",
+                                 signature == "cd8" ~ "CD8+ T-cell",
+                                 signature == "exp_immune" ~ "IFNg"),
+           Sex = factor(Sex, levels = c("F", "M", "All"))) # To  put 'All' on top
+
+  linetypes <- c(All = "dotted", M = "solid", `F` = "solid")
+  colors <- c(All = "gray50", M = "#0671B7", `F` = "#F8B7CD")
+  
+  dens_plot <- ggplot(all, aes(x = value, color = Sex, linetype = Sex)) +
+    scale_linetype_manual(values = linetypes) +
+    scale_color_manual(values = colors) +
+    geom_density(size = 0.5) + 
+    facet_grid(project~signature) + 
+    labs(x = "Gene Signature Score", y = "Density") +
+    theme_tufte(10) + 
+    theme(axis.text.y = element_blank(),
+          axis.ticks.y = element_blank())
+  
+  agg_png("./00_common/density_plot.png", width = 6, height = 12, units = "in", res = 288)
+  print(dens_plot)
+  dev.off()
+  "./00_common/density_plot.png"
+  
 }

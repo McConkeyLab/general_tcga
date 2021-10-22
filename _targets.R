@@ -45,6 +45,10 @@ mapped <- tar_map(
   tar_target(dds_w_scores, merge_gsva(norm, gsva_scores)),
   tar_target(dds_w_bin_scores, bin_gsva(dds_w_scores)),
   
+  # Final colData tibble -------------------------------------------------------
+  tar_target(coldata_tibble, get_coldata_tibble(dds_w_bin_scores, project)),
+  tar_target(gsva_tibble, get_gsva_tibble(coldata_tibble)),
+  
   # Survival analyses ----------------------------------------------------------
   tar_target(surv_tidy, tidy_for_survival(dds_w_bin_scores, project)),
   tar_target(univariate, run_all_uni_combos(surv_tidy, project)),
@@ -86,7 +90,9 @@ list(
   tar_combine(combined_dds, mapped[["dds"]], command = list(!!!.x)),
   tar_target(gene_ids, get_hgnc(combined_dds)),
   tar_combine(combined_unis, mapped[["univariate"]], command = rbind(!!!.x)),
-  tar_combine(combined_multis, mapped[["multivariable"]], command = rbind(!!!.x))
+  tar_combine(combined_multis, mapped[["multivariable"]], command = rbind(!!!.x)),
+  tar_combine(gsva_coldata, mapped[["gsva_tibble"]], command = rbind(!!!.x)),
+  tar_target(density_plot, make_density_plot(gsva_coldata), format = "file")
   #tar_target(hr_plot_unis, make_hr_plot(combined_unis), format = "file")
   #tar_target(hr_plot_multi, make_hr_plot_multi(combined_multis), format = "file")
 )

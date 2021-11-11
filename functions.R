@@ -514,14 +514,14 @@ get_multivariable_names <- function(univariate, project) {
   multi_names
 }
 
-run_multivariable <- function(data, multivariable_names, sex_arg = "all", sig = "none") {
+run_multivariable <- function(data, multivariable_names, sex_arg = "all", signature= "none") {
   
   if (sex_arg != "all") {
     data <- dplyr::filter(data, sex == sex_arg)
   }
   
-  if (sig != "none") {
-    multivariable_names <- c(multivariable_names, sig)
+  if (signature!= "none") {
+    multivariable_names <- c(multivariable_names, signature)
   }
 
   naming_function <- function(var, lvl, ordinal = FALSE, sep = "|") {
@@ -557,11 +557,11 @@ run_multivariable <- function(data, multivariable_names, sex_arg = "all", sig = 
 
 run_all_multi_combos <- function(data, names, project) {
   
-  eg <- expand_grid(sex_arg = c("all", "M", "F"), sig = c("none", "cd8_bin", "b_bin", "imm_bin"))
+  eg <- expand_grid(sex_arg = c("all", "M", "F"), signature= c("none", "cd8_bin", "b_bin", "imm_bin"))
   
   tibble(data = list(data), names = list(names), eg) |> 
     rowwise() |> 
-    mutate(res = list(run_multivariable(data, names, sex_arg, sig))) |> 
+    mutate(res = list(run_multivariable(data, names, sex_arg, signature))) |> 
     dplyr::select(-data) |> 
     mutate(project = project) |> 
     unnest(res) |> 
@@ -576,26 +576,49 @@ run_all_multi_combos <- function(data, names, project) {
     unnest(cols = base_level)
 }
 
-test_interaction <- function(data, names, project) {
+test_interaction_multi <- function(data, names, project) {
   
-  compare_fits <- function(a, b) {
-    anova(a, b)
-  }
-  
-  tibble(sig = c("cd8_bin", "b_bin", "imm_bin")) |> 
+  tibble(signature= c("cd8_bin", "b_bin", "imm_bin")) |> 
     rowwise() |> 
-    mutate(terms = union(names, c(sig, "sex")) |> 
+    mutate(terms = union(names, c(signature, "sex")) |> 
              paste(collapse = " + "),
-           terms_w_int = paste0(terms, " + sex:", sig),
+           terms_w_int = paste0(terms, " + sex:", signature),
            form = paste0("Surv(follow_up_time, death) ~ ", terms),
            form_w_int = paste0("Surv(follow_up_time, death) ~ ", terms_w_int),
            project = project,
+           type = "multi",
            fit = map(form, \(x) coxph(as.formula(x), data = data)),
            fit_w_int = map(form_w_int, \(x) coxph(as.formula(x), data = data))) |> 
     ungroup() |> 
     mutate(test = map2(fit, fit_w_int, anova))
 }
 
+test_interaction_uni <- function(data, project) {
+  
+  tibble(signature= c("cd8_bin", "b_bin", "imm_bin")) |> 
+    rowwise() |> 
+    mutate(terms = c(signature, "sex") |> 
+             paste(collapse = " + "),
+           terms_w_int = paste0(terms, " + sex:", signature),
+           form = paste0("Surv(follow_up_time, death) ~ ", terms),
+           form_w_int = paste0("Surv(follow_up_time, death) ~ ", terms_w_int),
+           project = project,
+           type = "uni",
+           fit = map(form, \(x) coxph(as.formula(x), data = data)),
+           fit_w_int = map(form_w_int, \(x) coxph(as.formula(x), data = data))) |> 
+    ungroup() |> 
+    mutate(test = map2(fit, fit_w_int, anova))
+}
+
+tidy_and_write_int <- function(combined_ints) {
+  combined_ints |> 
+    dplyr::select(project, signature, type, test, terms, terms_w_int) |> 
+    mutate(test = map(test, broom::tidy)) |> 
+    unnest(test) |> 
+    dplyr::filter(!is.na(p.value)) |>
+    write_tsv("./00_common/interaction_statistics.tsv")
+  "./00_common/interaction_statistics.tsv"
+}
 
 # Make Plots -------------------------------------------------------------------
 
@@ -744,28 +767,28 @@ make_univariate_plot <- function(univariate_data, project) {
   
 }
 
-make_multivariable_plot <- function(multi_data, project, sex = NA, sig = NA) {
+make_multivariable_plot <- function(multi_data, project, sex = NA, signature = NA) {
   
-  if (all(is.na(sex), is.na(sig)) | all(!is.na(sex), !is.na(sig))) {
-    stop("Either sex or sig must be set.")
+  if (all(is.na(sex), is.na(signature)) | all(!is.na(sex), !is.na(signature))) {
+    stop("Either sex or signaturemust be set.")
   }
   
   if (!is.na(sex)) {
     var <- sex
   }
-  if (!is.na(sig)) {
-    var <- sig
+  if (!is.na(signature)) {
+    var <- signature
   }
   
   proj_fig_dir <- tar_read_raw(paste0("fig_dir_", project))
   file_name <- paste0(proj_fig_dir, "multivariable-plot", "_", var, ".png")
 
   if (is.na(sex)) {
-    multi_data <- dplyr::filter(multi_data, signature == sig)
+    multi_data <- dplyr::filter(multi_data, signature == signature)
     var <- sym("sex_arg")
   }
   
-  if (is.na(sig)) {
+  if (is.na(signature)) {
     multi_data <- dplyr::filter(multi_data, sex_arg == sex)
     var <- sym("signature")
   }
@@ -810,7 +833,7 @@ make_multivariable_plot <- function(multi_data, project, sex = NA, sig = NA) {
     legend_title <- "Sex"
   } 
   
-  if (is.na(sig)) {
+  if (is.na(signature)) {
     multi_data <- multi_data |> 
       mutate(signature_piv = signature) |> 
       pivot_wider(names_from = signature_piv, values_from = anova_stars) |> 
@@ -821,7 +844,7 @@ make_multivariable_plot <- function(multi_data, project, sex = NA, sig = NA) {
       stratum = paste(stratum, nbti)) |> 
       arrange(category) |> 
       mutate(stratum = fct_inorder(stratum),
-             signature = signature |> 
+             signature = signature|> 
                str_remove("_bin") |> 
                str_replace("imm", "Immune") |> 
                str_replace("^b", "B\\-Cell") |> 
@@ -968,18 +991,18 @@ surv_ind_all <- function(data, strata, project, facet) {
 
 make_hr_plot <- function(data) {
   hr_plot <- data |> 
-    dplyr::filter(str_detect(term, "cd8_bin|b_bin|imm_bin")) |> 
+    dplyr::filter(str_detect(stratum, "cd8_bin|b_bin|imm_bin")) |> 
     mutate(project = toupper(project),
            sex_arg = factor(sex_arg, levels = c("F", "M", "all")),
-           term = case_when(term == "b_binHi" ~ "B-cell Signature",
-                            term == "cd8_binHi" ~ "CD8+ T-cell Signature",
-                            term == "imm_binHi" ~ "Pan-Immune Signature")) |> 
-    ggplot(aes(x = estimate, y = sex_arg, color = sex_arg)) +
+           stratum = case_when(stratum == "b_bin" ~ "B-cell Signature",
+                            stratum == "cd8_bin" ~ "CD8+ T-cell Signature",
+                            stratum == "imm_bin" ~ "Pan-Immune Signature")) |> 
+    ggplot(aes(x = fit_tidy_cox_estimate, y = sex_arg, color = sex_arg)) +
     geom_vline(xintercept = 1, alpha = 0.5) + 
     scale_color_manual(values = c("#F8B7CD", "#0671B7", "black")) + 
-    geom_linerange(aes(xmin = conf.low, xmax = conf.high)) + 
+    geom_linerange(aes(xmin = fit_tidy_cox_conf.low, xmax = fit_tidy_cox_conf.high)) + 
     geom_point() + 
-    facet_grid(project~term) + 
+    facet_grid(project~stratum) + 
     theme_tufte(10) + 
     labs(x = "Hazard Ratio") + 
     theme(legend.position = "none",
@@ -992,18 +1015,20 @@ make_hr_plot <- function(data) {
 
 make_hr_plot_multi <- function(data) {
   hr_plot <- data |> 
-    dplyr::filter(str_detect(tidy_coxph_term, "cd8_bin|b_bin|imm_bin")) |> 
+    dplyr::filter(str_detect(value, "cd8_bin|b_bin|imm_bin")) |> 
     mutate(project = toupper(project),
            sex = factor(sex_arg, levels = c("F", "M", "all")),
-           term = case_when(tidy_coxph_term == "b_binHi" ~ "B-cell Signature",
-                            tidy_coxph_term == "cd8_binHi" ~ "CD8+ T-cell Signature",
-                            tidy_coxph_term == "imm_binHi" ~ "Pan-Immune Signature")) |> 
-    ggplot(aes(x = tidy_coxph_estimate, y = sex, color = sex)) +
+           value = case_when(value == "b_bin" ~ "B-cell Signature",
+                            value == "cd8_bin" ~ "CD8+ T-cell Signature",
+                            value == "imm_bin" ~ "Pan-Immune Signature")) |> 
+    unnest(tidy_coxph) |> 
+    dplyr::filter(str_detect(term, "cd8_bin|b_bin|imm_bin")) |> 
+    ggplot(aes(x = estimate, y = sex, color = sex)) +
     geom_vline(xintercept = 1, alpha = 0.5) + 
     scale_color_manual(values = c("#F8B7CD", "#0671B7", "black")) + 
-    geom_linerange(aes(xmin = tidy_coxph_conf.low, xmax = tidy_coxph_conf.high)) + 
+    geom_linerange(aes(xmin = conf.low, xmax = conf.high)) + 
     geom_point() + 
-    facet_grid(project~term) + 
+    facet_grid(project~value) + 
     theme_tufte(10) + 
     labs(x = "Hazard Ratio") + 
     theme(legend.position = "none",

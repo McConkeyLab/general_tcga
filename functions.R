@@ -446,6 +446,11 @@ tidy_for_survival <- function(coldata_tibble, project) {
     mutate(race = race |> fct_drop() |> fct_relevel("white")) # this feels...wrong
 }
 
+tidy_surv_select <- function(tidy_surv, project) {
+  tidy_surv |> 
+    dplyr::select(cd8_bin, imm_bin, b_bin, death, follow_up_time, sex, project)
+}
+
 run_univariate <- function(data, stratum, sex_arg = "all") {
   
   if (sex_arg != "all") {
@@ -509,14 +514,14 @@ get_multivariable_names <- function(univariate, project) {
   multi_names
 }
 
-run_multivariable <- function(data, multivariable_names, sex_arg = "all", signature = "none") {
+run_multivariable <- function(data, multivariable_names, sex_arg = "all", sig = "none") {
   
   if (sex_arg != "all") {
     data <- dplyr::filter(data, sex == sex_arg)
   }
   
-  if (signature != "none") {
-    multivariable_names <- c(multivariable_names, signature)
+  if (sig != "none") {
+    multivariable_names <- c(multivariable_names, sig)
   }
 
   naming_function <- function(var, lvl, ordinal = FALSE, sep = "|") {
@@ -552,11 +557,11 @@ run_multivariable <- function(data, multivariable_names, sex_arg = "all", signat
 
 run_all_multi_combos <- function(data, names, project) {
   
-  eg <- expand_grid(sex_arg = c("all", "M", "F"), signature = c("none", "cd8_bin", "b_bin", "imm_bin"))
+  eg <- expand_grid(sex_arg = c("all", "M", "F"), sig = c("none", "cd8_bin", "b_bin", "imm_bin"))
   
   tibble(data = list(data), names = list(names), eg) |> 
     rowwise() |> 
-    mutate(res = list(run_multivariable(data, names, sex_arg, signature))) |> 
+    mutate(res = list(run_multivariable(data, names, sex_arg, sig))) |> 
     dplyr::select(-data) |> 
     mutate(project = project) |> 
     unnest(res) |> 
@@ -571,7 +576,30 @@ run_all_multi_combos <- function(data, names, project) {
     unnest(cols = base_level)
 }
 
-# Plotting Helpers -------------------------------------------------------------
+test_interaction <- function(data, names, project) {
+  
+  compare_fits <- function(a, b) {
+    anova(a, b)
+  }
+  
+  tibble(sig = c("cd8_bin", "b_bin", "imm_bin")) |> 
+    rowwise() |> 
+    mutate(terms = union(names, c(sig, "sex")) |> 
+             paste(collapse = " + "),
+           terms_w_int = paste0(terms, " + sex:", sig),
+           form = paste0("Surv(follow_up_time, death) ~ ", terms),
+           form_w_int = paste0("Surv(follow_up_time, death) ~ ", terms_w_int),
+           project = project,
+           fit = map(form, \(x) coxph(as.formula(x), data = data)),
+           fit_w_int = map(form_w_int, \(x) coxph(as.formula(x), data = data))) |> 
+    ungroup() |> 
+    mutate(test = map2(fit, fit_w_int, anova))
+}
+
+
+# Make Plots -------------------------------------------------------------------
+
+## Plotting Helpers ------------------------------------------------------------
 
 theme_tufte <- function(font_size = 30) {
   
@@ -625,8 +653,6 @@ make_plot_strata_names <- function(stratum){
     str_replace_all("(\\bI[iv]*\\b)", str_to_upper) |> 
     str_replace("(\\bVs\\b)", str_to_lower)
 }
-
-# Make Plots -------------------------------------------------------------------
 
 ## Individual Project Plots -----------------------------------------------------
 
@@ -842,41 +868,6 @@ make_all_multivariable_plot_combos <- function(multi_data, project) {
            project = project,
            plot_paths = pmap_chr(list(multi_data, project, sex_list, sig_list), make_multivariable_plot))
   eg$plot_paths  
-}
-
-dense_ind <- function(data, x, file_name, project, color = NULL, 
-                      facet = NULL, width = 3, height = 3) {
-  
-  proj_fig_dir <- tar_read_raw(paste0("fig_dir_", project))
-  file_name <- paste0(proj_fig_dir, file_name)
-  
-  enq_fac <- enquo(facet)
-  
-  this_plot <- data |> 
-    colData() |> 
-    as_tibble() |> 
-    ggplot(aes(x = .data[[x]], color = .data[[color]])) + 
-    geom_density() + 
-    facet_grid(rows = vars(!!enq_fac)) + 
-    coord_cartesian(xlim = c(-1, 1)) + 
-    theme_tufte(10)
-  
-  agg_png(file_name, width = width, height = height,  units = "in", res = 288)
-  print(this_plot)
-  dev.off()
-  
-  file_name
-}
-
-dens_ind_all <- function(data, xs, project, color) {
-
-  expand_grid(data = list(data), xs) |> 
-    mutate(file_name = paste0("density_", xs, ".png"),
-           project = project,
-           color = color,
-           file_path = pmap(list(data = data, x = xs, file_name = file_name, project = project, color = color), dense_ind)) |> 
-    pull(file_path) |> 
-    unlist()
 }
 
 surv_ind <- function(data, strata, file_name, project, 

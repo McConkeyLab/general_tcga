@@ -51,9 +51,11 @@ mapped <- tar_map(
   
   # Survival analyses ----------------------------------------------------------
   tar_target(surv_tidy, tidy_for_survival(coldata_tibble, project)),
+  tar_target(surv_tidy_select, tidy_surv_select(surv_tidy)),
   tar_target(univariate, run_all_uni_combos(surv_tidy, project)),
   tar_target(multivariable_names, get_multivariable_names(univariate, project)),
   tar_target(multivariable, run_all_multi_combos(surv_tidy, multivariable_names, project)),
+  tar_target(interaction_test, test_interaction(surv_tidy, multivariable_names, project)),
   
   # Tables ---------------------------------------------------------------------
   tar_target(clin_table, make_clin_table(dds_w_bin_scores, project), format = "file"),
@@ -65,13 +67,7 @@ mapped <- tar_map(
   
   tar_target(multivariable_plots,
              make_all_multivariable_plot_combos(multivariable, project)),
-  
-  # tar_target(density_plots,
-  #            dens_ind_all(data = dds_w_bin_scores, 
-  #                         xs = c("b_cell", "exp_immune", "cd8"), 
-  #                         project, 
-  #                         color = "sex"),
-  #            format = "file"),
+
   tar_target(survival_plots,
              surv_ind_all(data = dds_w_bin_scores,
                           strata = c("b_bin", "cd8_bin", "imm_bin"),
@@ -91,6 +87,7 @@ list(
   tar_target(gene_ids, get_hgnc(combined_dds)),
   tar_combine(combined_unis, mapped[["univariate"]], command = rbind(!!!.x)),
   tar_combine(combined_multis, mapped[["multivariable"]], command = rbind(!!!.x)),
+  tar_combine(combined_survs, mapped[["surv_tidy_select"]], command = rbind(!!!.x)),
   tar_combine(gsva_coldata, mapped[["gsva_tibble"]], command = rbind(!!!.x)),
   tar_target(density_plot, make_density_plot(gsva_coldata), format = "file")
   #tar_target(hr_plot_unis, make_hr_plot(combined_unis), format = "file")

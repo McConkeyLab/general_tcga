@@ -1,6 +1,14 @@
 # general_tcga
 
-This repository contains a `targets` workflow that automatically downloads TCGA data, removes blacklisted and FFPE samples, tidies clinical data, and coerces it into a `SummarizedExperiment`. Additionally, for the time being, it also performs `GSVA` on a set of gene signatures and appends those results to the `colData` of the `SummarizedExperiment`.
+This repository contains a `targets` workflow that automatically:
+- Downloads TCGA RNAseq counts and clinical data
+- Removes blacklisted, FFPE, or otherwise excluded samples (at the manifest level, before downloading them)
+- Tidies clinical data
+- Obtains HGNC gene symbols from Entrez IDs
+- Coerces counts and clinical data into a `SummarizedExperiment`
+- Normalizes counts using `DESeq2::vst` (supplied as the second assay slot of the resultant `SummarizedExperiment`)
+- Performs `GSVA` on a set of gene signatures and appends those results to the `colData` of the `SummarizedExperiment` (This analysis may be removed later)
+- Writes resultant `SummarizedExperiment` files as an `.Rds` file.
 
 # Requirements
 

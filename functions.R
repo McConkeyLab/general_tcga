@@ -114,7 +114,7 @@ tidy_clin <- function(clin_path, project) {
     # For reasoning as to the above filtering rule, see
     # https://www.graphpad.com/support/faq/events-deaths-at-time-zero-in-survival-analysis/
   
-  clin_filtered <- clinical |> 
+  clin_filtered <- all_clin |> 
     recipe() |> 
     step_zv(everything()) |> 
     step_nzv(everything()) |> 

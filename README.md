@@ -1,6 +1,6 @@
 # general_tcga
 
-This repository contains a `targets` workflow that automatically downloads TCGA data, removes blacklisted and ffpe samples, tidies clinical data, and coerces it into a `SummarizedExperiment`. Additionally, for the time being, it also performs `GSVA` on a set of gene signatures and appends those results to the `colData` of the `SummarizedExperiment`.
+This repository contains a `targets` workflow that automatically downloads TCGA data, removes blacklisted and FFPE samples, tidies clinical data, and coerces it into a `SummarizedExperiment`. Additionally, for the time being, it also performs `GSVA` on a set of gene signatures and appends those results to the `colData` of the `SummarizedExperiment`.
 
 # Requirements
 

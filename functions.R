@@ -117,7 +117,6 @@ tidy_clin <- function(clin_path, project) {
   clin_filtered <- all_clin |> 
     recipe() |> 
     step_zv(everything()) |> 
-    step_nzv(everything()) |> 
     prep() |> 
     bake(new_data = NULL)
 

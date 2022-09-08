@@ -136,7 +136,8 @@ make_man <- function(rm_cases_file, tcga_project) {
   manifest <- files() |>
     GenomicDataCommons::filter(cases.project.project_id == tcga_project_gdc) |>
     GenomicDataCommons::filter(type == "gene_expression") |>
-    GenomicDataCommons::filter(analysis.workflow_type == "HTSeq - Counts") |>
+    GenomicDataCommons::filter(analysis.workflow_type == "STAR - Counts") |>
+    GenomicDataCommons::filter(access == "open") |>
     manifest() |>
     # Creates a 'path' feature that DESeq uses for its sampleTable argument
     mutate(path = paste(id, filename, sep = "/"))

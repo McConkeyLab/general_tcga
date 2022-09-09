@@ -183,20 +183,37 @@ man_to_dds <- function(clin, manifest) {
   
   tumor_data <- manifest |>
     inner_join(clin, by = c("cases.case_id" = "patient.bcr_patient_uuid"))
+
+  read_star_file <- function(star_file_entry) {
+    file_path <- star_file_entry$path
+    sample_name <- star_file_entry$id
+    fs::path("01_data", "00_gdcdata", file_path) |> 
+      read_tsv(skip = 1, col_types = "cc_i_____") |>
+      dplyr::slice(-(1:4)) |> 
+      dplyr::rename(!!sample_name := unstranded)
+  }
   
-  sample_table <- data.frame(sampleName = tumor_data$id,
-                             fileName = tumor_data$path)
+  read_and_join_star_file <- function(prev_star_file, new_entry) {
+    full_join(prev_star_file, read_star_file(new_entry), by = c("gene_id", "gene_name"))
+  }
   
-  dds <- DESeqDataSetFromHTSeqCount(sampleTable = sample_table,
-                                    directory = "./01_data/00_gdcdata",
-                                    design = ~1)
+  counts <- purrr::reduce(split(tumor_data, 1:nrow(tumor_data))[-1], read_and_join_star_file, .init = read_star_file(tumor_data[1,]))
+  rd <- DataFrame(counts[1:2])
+  rd$gene_id_w_ver <- rd$gene_id
+  
+  # Strip Ensembl Version Number
+  rd$ensembl_gene_id <- str_replace(rd$gene_id, "\\.[0-9]+$", "")
+  
+  cd <- DataFrame(sampleName = tumor_data$id, fileName = tumor_data$path)
+  se <- SummarizedExperiment(rowData = rd, colData = cd, assays = list(counts = data.matrix(counts[-(1:2)])))
+  dds <- DESeqDataSet(se, design = ~1)
+  
   
   samples <- tumor_data[match(colnames(dds), tumor_data$id), ]
   colData(dds) <- cbind(colData(dds), samples)
   colnames(dds) <- colData(dds)$submitter_id
+  rownames(dds) <- rowData(dds)$ensembl_gene_id
   
-  # Strip Ensembl Version Number
-  rownames(dds) <- str_replace(rownames(dds), ".[0-9]+$", "")
   dds
 }
 
@@ -226,16 +243,19 @@ join_ids <- function(dds, ids) {
   rownames(dds) <- rowData(dds)$hgnc_symbol
   rownames(dds) <- make.names(rownames(dds), unique = TRUE)
   nas <- which(is.na(rowData(dds)$ensembl_gene_id))
-  dds <- dds[-nas, ]
+  if (!identical(nas, integer(0))) {
+    dds <- dds[-nas, ]
+  }
+  dds
 }
 
 normalize <- function(dds) {
 
+  
   norm_counts <- dds |>
     estimateSizeFactors() |>
     vst() |>
     assay()
-  
   assay(dds, 2) <- norm_counts
   assayNames(dds)[[2]] <- "vst"
   dds
@@ -319,3 +339,4 @@ bin_gsva <- function(dds) {
   
   dds
 }
+

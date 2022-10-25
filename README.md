@@ -7,18 +7,17 @@ This repository contains a `targets` workflow that automatically:
 - Obtains HGNC gene symbols from Entrez IDs
 - Coerces counts and clinical data into a `SummarizedExperiment`
 - Normalizes counts using `DESeq2::vst` (supplied as the second assay slot of the resultant `SummarizedExperiment`)
-- Performs `GSVA` on a set of gene signatures and appends those results to the `colData` of the `SummarizedExperiment` (This analysis may be removed later)
 - Writes resultant `SummarizedExperiment` files as an `.Rds` file.
 
 # Requirements
 
 - R >=4.1.0 (relies on native pipe)
 - The following packages:
-  - `tidyverse`, `broom`, `glue`, `rvest`, `GenomicDataCommons`, `TCGAutils`, `biomaRt`, `SummarizedExperiment`, `DESeq2`, `GSVA`, `tidymodels`, `targets`, `tarchetypes`
+  - `tidyverse`, `broom`, `glue`, `rvest`, `GenomicDataCommons`, `TCGAutils`, `biomaRt`, `SummarizedExperiment`, `DESeq2`, `tidymodels`, `targets`, `tarchetypes`
   - You can download these quickly and easily using the following:
   ```
   install.packages("pak")
-  pak::pkg_install("tidyverse", "broom", "glue", "rvest", "GenomicDataCommons", "TCGAutils", "biomaRt", "SummarizedExperiment", "DESeq2", "GSVA", "tidymodels", "targets", "tarchetypes")
+  pak::pkg_install("tidyverse", "broom", "glue", "rvest", "GenomicDataCommons", "TCGAutils", "biomaRt", "SummarizedExperiment", "DESeq2", "tidymodels", "targets", "tarchetypes")
   ```
 
 # Directions

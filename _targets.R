@@ -1,14 +1,12 @@
 library(targets)
 library(tarchetypes)
-library(tibble)
-library(readr)
 
 source("functions.R")
 
 tar_option_set(
   packages = c(
     "tidyverse", "broom", "glue", "rvest", "GenomicDataCommons", "TCGAutils", 
-    "biomaRt", "SummarizedExperiment", "DESeq2", "GSVA", "tidymodels"
+    "biomaRt", "SummarizedExperiment", "DESeq2", "tidymodels"
   ),
   iteration = "list"
 )
@@ -20,15 +18,12 @@ list(
   tar_target(projects, c("blca", "skcm", "luad", "lusc", "kirc", "coad", "stad", 
                          "paad", "lihc", "hnsc")),
   tar_target(dir, make_dir(paste0(data_dir, projects, "/")), pattern = map(projects), iteration = "vector"),
-  
-  # Tidy gene signatures -------------------------------------------------------
-  tar_target(gene_signatures, tidy_signatures()),
-  
+
   # Create aggregate file of samples to be removed -----------------------------
-  tar_target(rm_cases, make_rm(common_dir), format = "file"),
+  tar_file(rm_cases, make_rm(common_dir)),
   
   # Clinical data acquisition and tidying --------------------------------------
-  tar_target(clin_dirty, get_clin(dir, projects), format = "file", pattern = map(dir, projects), iteration = "vector"),
+  tar_file(clin_dirty, get_clin(dir, projects), pattern = map(dir, projects), iteration = "vector"),
   tar_target(clin, tidy_clin(clin_dirty, projects), pattern = map(clin_dirty, projects)),
   
   # Wrangle and tidy count data ------------------------------------------------
@@ -44,11 +39,6 @@ list(
   
   # Normalize and transform counts with VST and add to assay slot --------------
   tar_target(norm, normalize(dds_w_ids), pattern = map(dds_w_ids)),
-  
-  # GSVA -----------------------------------------------------------------------
-  tar_target(gsva_scores, run_gsva(norm, gene_signatures), pattern = map(norm)),
-  tar_target(dds_w_scores, merge_gsva(norm, gsva_scores), pattern = map(norm, gsva_scores)),
-  tar_target(dds_w_bin_scores, bin_gsva(dds_w_scores), pattern = map(dds_w_scores)),
   
   # Output ---------------------------------------------------------------------
   tar_target(rds, write_rds(dds_w_bin_scores, file = paste0(dir, "dds.rds")), pattern = map(dds_w_bin_scores, dir))

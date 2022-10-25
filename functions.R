@@ -1,4 +1,4 @@
-# File Preparation and Download ------------------------------------------------
+# File Preparation and Download -------------------------------------------
 
 make_dir <- function(path) {
   if (!dir.exists(path)) {
@@ -250,8 +250,6 @@ join_ids <- function(dds, ids) {
 }
 
 normalize <- function(dds) {
-
-  
   norm_counts <- dds |>
     estimateSizeFactors() |>
     vst() |>
@@ -260,83 +258,3 @@ normalize <- function(dds) {
   assayNames(dds)[[2]] <- "vst"
   dds
 }
-
-tidy_signatures <- function() {
-  
-  # Pan B-Cell Signature: https://jitc.bmj.com/content/5/1/18.long
-  
-  # CD8+ T Effector Signature: https://www.ncbi.nlm.nih.gov/pmc/articles/PMC5480242/#SD1
-  # Supplementary figure 6
-  
-  # Expanded Immune Signature: https://www.jci.org/articles/view/91190
-  # Table 2
-  
-  b_cell <- c("BLK", "CD19", "FCRL2", "MS4A1", "KIAA0125", "TNFRSF17", "TCL1A",
-              "SPIB", "PNOC")
-  cd8 <- c("CD8A", "GZMA", "GZMB", "IFNG", "CXCL9", "CXCL10", "PRF1", "TBX21")
-  exp_immune <- c("CD3D", "IDO1", "CIITA", "CD3E", "CCL5", "GZMK", "CD2", 
-                  "HLA-DRA", "CXCL13", "IL2RG", "NKG7", "HLA-E", "CXCR6", "LAG3", 
-                  "TAGAP", "CXCL10", "STAT1", "GZMB")
-  
-  signatures <- list(b_cell = b_cell, cd8 = cd8, exp_immune = exp_immune)
-  
-}
-
-run_gsva <- function(dds, signatures) {
-  
-  # Foresight:
-  signatures$b_cell[(signatures$b_cell == "KIAA0125")] <- "FAM30A"
-  signatures$exp_immune[(signatures$exp_immune == "HLA-DRA")] <- "HLA.DRA"
-  signatures$exp_immune[(signatures$exp_immune == "HLA-E")] <- "HLA.E"
-  
-  genes <- unlist(signatures) |>
-    as_tibble()
-  no_match <- as.character(genes[!(genes$value %in% rownames(dds)), ])
-  
-  if (no_match == "character(0)") {
-    print("All signature genes have match in dataset.")
-  } else {
-    warning(paste(no_match, "is in a signature but has no match in the dataset\n"))
-  }
-  
-  gsva(assay(dds, 2), signatures, mx.diff = TRUE, kcdf = "Gaussian")
-}
-
-merge_gsva <- function(data, scores) {
-  
-  col_data <- data |>
-    colData() |>
-    as_tibble(rownames = "sample")
-  
-  scores <- scores |> 
-    t() |>
-    as_tibble(rownames = "sample")
-  
-  joined <- 
-    inner_join(col_data, scores, by = "sample") |> 
-    DataFrame()
-  
-  colData(data) <- joined
-  
-  data
-}
-
-bin_gsva <- function(dds) {
-  
-  col_data <- dds |>  
-    colData() |> 
-    as_tibble() |> 
-    mutate(b_bin = if_else(b_cell > 0, "Hi", "Lo"),
-           b_bin = factor(b_bin, levels = c("Lo", "Hi")),
-           cd8_bin = if_else(cd8 > 0, "Hi", "Lo"),
-           cd8_bin = factor(cd8_bin, levels = c("Lo", "Hi")),
-           imm_bin = if_else(exp_immune > 0, "Hi", "Lo"),
-           imm_bin = factor(imm_bin, levels = c("Lo", "Hi"))) |>
-    mutate(across(matches("_bin$"), \(x) factor(x, levels = c("Lo", "Hi")))) |> 
-    DataFrame()
-  
-  colData(dds) <- col_data
-  
-  dds
-}
-

@@ -1,6 +1,8 @@
 library(targets)
 library(tarchetypes)
-
+library(future)
+library(future.callr)
+plan(callr)
 source("functions.R")
 
 tar_option_set(

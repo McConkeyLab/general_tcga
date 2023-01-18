@@ -140,7 +140,7 @@ make_man <- function(rm_cases_file, tcga_project) {
     GenomicDataCommons::filter(access == "open") |>
     manifest() |>
     # Creates a 'path' feature that DESeq uses for its sampleTable argument
-    mutate(path = paste(id, filename, sep = "/"))
+    mutate(path = paste(id, file_name, sep = "/"))
 
   barcodes <- manifest$id |>
     UUIDtoBarcode(from_type = "file_id") |>

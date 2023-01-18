@@ -152,7 +152,8 @@ make_man <- function(rm_cases_file, tcga_project) {
   joined_ids <- full_join(barcodes, uuids, by = "file_id")
 
   manifest <- manifest |>
-    full_join(joined_ids, by = c("id" = "file_id", "submitter_id" = "submitter_id")) |>
+    full_join(joined_ids, by = c("id" = "file_id")) |>
+    dplyr::rename(submitter_id = submitter_id.y) |>
     mutate(short_id = str_sub(submitter_id, 1, 12)) |>
     dplyr::filter(str_detect(submitter_id, "^TCGA-[[:alnum:]]{2}-[[:alnum:]]{4}-0")) |>
     anti_join(rm_cases, by = c("submitter_id" = "id")) |>
@@ -197,7 +198,9 @@ man_to_dds <- function(clin, manifest) {
     full_join(prev_star_file, read_star_file(new_entry), by = c("gene_id", "gene_name"))
   }
 
-  counts <- purrr::reduce(split(tumor_data, 1:nrow(tumor_data))[-1], read_and_join_star_file, .init = read_star_file(tumor_data[1,]))
+  counts <- purrr::reduce(split(tumor_data, 1:nrow(tumor_data))[-1], 
+                          read_and_join_star_file, 
+                          .init = read_star_file(tumor_data[1,]))
   rd <- DataFrame(counts[1:2])
   rd$gene_id_w_ver <- rd$gene_id
 

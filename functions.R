@@ -152,7 +152,7 @@ make_man <- function(rm_cases_file, tcga_project) {
   joined_ids <- full_join(barcodes, uuids, by = "file_id")
 
   manifest <- manifest |>
-    full_join(joined_ids, by = c("id" = "file_id")) |>
+    full_join(joined_ids, by = c("id" = "file_id", "submitter_id" = "submitter_id")) |>
     mutate(short_id = str_sub(submitter_id, 1, 12)) |>
     dplyr::filter(str_detect(submitter_id, "^TCGA-[[:alnum:]]{2}-[[:alnum:]]{4}-0")) |>
     anti_join(rm_cases, by = c("submitter_id" = "id")) |>

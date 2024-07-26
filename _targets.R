@@ -34,7 +34,7 @@ list(
   tar_target(man_w_paths, download_tcga_data(man, dir), pattern = map(man, dir)),
 
   # Join count and clinical data in dds ----------------------------------------
-  tar_target(dds, man_to_dds(clin, man_w_paths), pattern = map(clin, man_w_paths)),
+  tar_target(dds, man_to_dds(clin, man_w_paths, dir), pattern = map(clin, man_w_paths, dir)),
 
   # Get and add HGNC gene symbols to dds ---------------------------------------
   tar_target(gene_ids, get_hgnc(dds)),

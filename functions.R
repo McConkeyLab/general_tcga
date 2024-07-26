@@ -200,7 +200,7 @@ download_tcga_data <- function(manifest, dir) {
   manifest
 }
 
-man_to_dds <- function(clin, manifest) {
+man_to_dds <- function(clin, manifest, dir) {
 
   # Some samples may be in the manifest but not in the clinical data.
 
@@ -219,7 +219,7 @@ man_to_dds <- function(clin, manifest) {
   read_star_file <- function(star_file_entry) {
     file_path <- star_file_entry$path
     sample_name <- star_file_entry$id
-    fs::path("01_data", "00_gdcdata", file_path) |>
+    fs::path(dir, file_path) |>
       read_tsv(skip = 1, col_types = "cc_i_____") |>
       dplyr::slice(-(1:4)) |>
       dplyr::rename(!!sample_name := unstranded)

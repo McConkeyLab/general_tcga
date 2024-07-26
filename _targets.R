@@ -5,6 +5,8 @@ library(future.callr)
 plan(callr)
 source("functions.R")
 
+check_if_gdc_dttc_exists()
+
 tar_option_set(
   packages = c(
     "tidyverse", "broom", "glue", "rvest", "GenomicDataCommons", "TCGAutils",
@@ -30,7 +32,7 @@ list(
 
   # Wrangle and tidy count data ------------------------------------------------
   tar_target(man, make_man(rm_cases, projects), pattern = map(projects)),
-  tar_target(man_w_paths, download_tcga_data(man), pattern = map(man)),
+  tar_target(man_w_paths, download_tcga_data(man, dir), pattern = map(man, dir)),
 
   # Join count and clinical data in dds ----------------------------------------
   tar_target(dds, man_to_dds(clin, man_w_paths), pattern = map(clin, man_w_paths)),

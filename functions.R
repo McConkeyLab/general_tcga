@@ -1,3 +1,28 @@
+# Check for dependencies
+check_if_gdc_dttc_exists <- function() {
+  exists <- suppressWarnings(
+    system2(
+      "command", c("-v", "gdc-client"),
+      stdout = FALSE,
+      stderr = FALSE
+    )
+  )
+  # Returns 0 if it exists
+
+  if (exists != 0) {
+    cli::cli_abort(
+      c(
+        "Could not find gdc-client",
+        i = "gdc-client doesn't appear to be installed on this machine",
+        i = "It might not be in your PATH",
+        i = "You can download it here:",
+        i = "https://bio-formats.readthedocs.io/en/stable/users/comlinetools/index.html" #nolint
+      )
+    )
+  }
+}
+
+
 # File Preparation and Download -------------------------------------------
 
 make_dir <- function(path) {
@@ -161,11 +186,17 @@ make_man <- function(rm_cases_file, tcga_project) {
     distinct(short_id, .keep_all = TRUE)
 }
 
-download_tcga_data <- function(manifest) {
+download_tcga_data <- function(manifest, dir) {
   manifest <- manifest |>
     dplyr::select(id, path, submitter_id, short_id, cases.case_id)
-  gdc_set_cache("./01_data/00_gdcdata", create_without_asking = T)
-  lapply(manifest$id, gdcdata)
+  write_tsv(manifest, file = paste0(tempdir(), "/temp.txt"))
+  system2(
+    "gdc-client",
+    c("download",
+      "-m", paste0(tempdir(), "/temp.txt"),
+      "-d", dir
+    )
+  )
   manifest
 }
 

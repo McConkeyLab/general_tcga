@@ -19,8 +19,7 @@ list(
   # Init dirs ------------------------------------------------------------------
   tar_target(data_dir, make_dir("./01_data/")),
   tar_target(common_dir, make_dir(paste0(data_dir, "00_common/"))),
-  tar_target(projects, c("blca", "skcm", "luad", "lusc", "kirc", "coad", "stad",
-                         "paad", "lihc", "hnsc")),
+  tar_target(projects, "blca"),
   tar_target(dir, make_dir(paste0(data_dir, projects, "/")), pattern = map(projects), iteration = "vector"),
 
   # Create aggregate file of samples to be removed -----------------------------
